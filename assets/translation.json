@@ -439,7 +439,9 @@
     "Clear specific reader settings for this device": "清除该设备的特殊阅读设置",
     "Enable device specific settings": "启用此设备特定设置",
     "Ignore Certificate Errors": "忽略证书错误",
-    "Mouse scroll speed": "鼠标滚动速度"
+    "Mouse scroll speed": "鼠标滚动速度",
+    "OmniHub is a free and open-source app for comic and novel reading.": "OmniHub是一个免费的开源漫画与小说阅读应用。",
+    "Cloud Sync": "云同步"
   },
   "zh_TW": {
     "Home": "首頁",
@@ -881,6 +883,8 @@
     "Clear specific reader settings for this device": "清除該裝置的特殊閱讀設定",
     "Enable device specific settings": "啟用此裝置特定設定",
     "Ignore Certificate Errors": "忽略證書錯誤",
-    "Mouse scroll speed": "滑鼠滾動速度"
+    "Mouse scroll speed": "滑鼠滾動速度",
+    "OmniHub is a free and open-source app for comic and novel reading.": "OmniHub是一個免費的開源漫畫與小說閱讀應用。",
+    "Cloud Sync": "雲端同步"
   }
 }

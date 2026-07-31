@@ -14,6 +14,8 @@ import 'package:venera/foundation/js_engine.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/app_dio.dart';
+import 'package:venera/omnihub/sync/omni_sync.dart';
+import 'package:venera/omnihub/sync/bookshelf_sync.dart';
 import 'package:venera/utils/data.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/io.dart';
@@ -28,6 +30,7 @@ part 'local_favorites.dart';
 part 'app.dart';
 part 'about.dart';
 part 'network.dart';
+part 'omni_sync.dart';
 part 'debug.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -53,6 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
     "Local Favorites",
     "APP",
     "Network",
+    "Cloud Sync",
     "About",
     "Debug"
   ];
@@ -64,6 +68,7 @@ class _SettingsPageState extends State<SettingsPage> {
     Icons.collections_bookmark_rounded,
     Icons.apps,
     Icons.public,
+    Icons.sync,
     Icons.info,
     Icons.bug_report,
   ];
@@ -260,8 +265,9 @@ class _SettingsPageState extends State<SettingsPage> {
       3 => const LocalFavoritesSettings(),
       4 => const AppSettings(),
       5 => const NetworkSettings(),
-      6 => const AboutSettings(),
-      7 => const DebugPage(),
+      6 => const OmniSyncSettings(),
+      7 => const AboutSettings(),
+      8 => const DebugPage(),
       _ => throw UnimplementedError()
     };
   }
@@ -288,8 +294,9 @@ class _SettingsDetailPage extends StatelessWidget {
       3 => const LocalFavoritesSettings(),
       4 => const AppSettings(),
       5 => const NetworkSettings(),
-      6 => const AboutSettings(),
-      7 => const DebugPage(),
+      6 => const OmniSyncSettings(),
+      7 => const AboutSettings(),
+      8 => const DebugPage(),
       _ => throw UnimplementedError()
     };
   }
