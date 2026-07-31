@@ -24,14 +24,16 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Generate signing keystore (CI 测试签名)
+      - name: Ensure signing keystore (仓库已固定测试签名，缺失才生成)
         run: |
-          keytool -genkeypair -v \
-            -keystore android/app/omnihub-release.jks \
-            -alias omnihub -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass omnihub2026 -keypass omnihub2026 \
-            -dname "CN=OmniHub, OU=Dev, O=OmniHub, L=Beijing, ST=Beijing, C=CN"
-          printf 'storeFile=omnihub-release.jks\nstorePassword=omnihub2026\nkeyAlias=omnihub\nkeyPassword=omnihub2026\n' > android/key.properties
+          if [ ! -f android/key.properties ]; then
+            keytool -genkeypair -v \
+              -keystore android/app/omnihub-release.jks \
+              -alias omnihub -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass omnihub2026 -keypass omnihub2026 \
+              -dname "CN=OmniHub, OU=Dev, O=OmniHub, L=Beijing, ST=Beijing, C=CN"
+            printf 'storeFile=omnihub-release.jks\nstorePassword=omnihub2026\nkeyAlias=omnihub\nkeyPassword=omnihub2026\n' > android/key.properties
+          fi
 
       - name: Build APK (release)
         run: flutter build apk --release --split-per-abi
