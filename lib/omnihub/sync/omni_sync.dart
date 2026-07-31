@@ -328,6 +328,9 @@ class OmniSync extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 外部触发一次登录态/资料广播（如修改昵称后让设置页刷新）
+  void refresh() => notifyListeners();
+
   Future<void> _ensureFresh() async {
     if (_session != null && _session!.isExpired) await _refresh();
   }

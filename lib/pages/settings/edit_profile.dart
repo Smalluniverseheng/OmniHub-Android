@@ -11,7 +11,6 @@ import 'package:dio/dio.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
@@ -140,7 +139,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         // 云端失败不阻塞本地保存
       }
     }
-    OmniSync.instance.notifyListeners(); // 让设置页立即刷新昵称/头像
+    OmniSync.instance.refresh(); // 让设置页立即刷新昵称/头像
     if (mounted) {
       setState(() => _saving = false);
       context.showMessage(message: "已保存".tl);
