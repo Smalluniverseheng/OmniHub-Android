@@ -3,7 +3,6 @@
 /// 提供 293 个模型的查询/搜索/分组，以及厂商名 → keySlug 映射。
 library ai_models;
 
-import 'ai_providers.dart';
 
 part 'ai_models_data.dart';
 

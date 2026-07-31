@@ -149,7 +149,7 @@ class _ModelTile extends StatelessWidget {
       subtitle: Text(
         [
           model.id,
-          if (model.ctx != null) '${model.ctx} ctx',
+          if (model.ctx > 0) '${model.ctx} ctx',
           if (model.vision) 'vision',
           if (model.thinking) 'thinking',
         ].join(' · '),
