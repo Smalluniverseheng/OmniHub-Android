@@ -1,9 +1,7 @@
 /// 书架相关子页面：筛选 / 展示设置 / 云同步管理 / 阅读统计 / 最近删除
 library shelf_subpages;
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/favorites.dart';
@@ -11,8 +9,11 @@ import 'package:venera/omnihub/shelf/recycle_bin.dart';
 import 'package:venera/omnihub/stats/reading_stats.dart';
 import 'package:venera/omnihub/sync/bookshelf_sync.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
+import 'package:venera/omnihub/sync/profile.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/translations.dart';
+
+import 'import_export_pages.dart';
 
 /// 书架复合筛选条件
 class ShelfFilter {
@@ -268,8 +269,7 @@ class CloudSyncManagePage extends StatefulWidget {
 }
 
 class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
-  String? _membership;
-  double? _usedBytes;
+  OmniProfile? _profile;
   bool _loadingProfile = false;
   bool _syncing = false;
 
@@ -281,51 +281,15 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
     _loadProfile();
   }
 
-  /// 会员等级 → 云端额度（字节）
-  static double quotaOf(String? membership) {
-    switch (membership) {
-      case 'vip':
-        return 2 * 1024 * 1024 * 1024; // 2GB
-      case 'svip':
-        return 10 * 1024 * 1024 * 1024; // 10GB
-      default:
-        return 1 * 1024 * 1024 * 1024; // 免费 1GB
-    }
-  }
-
-  static String fmtBytes(double b) {
-    if (b >= 1 << 30) return '${(b / (1 << 30)).toStringAsFixed(1)}GB';
-    if (b >= 1 << 20) return '${(b / (1 << 20)).toStringAsFixed(1)}MB';
-    return '${(b / 1024).toStringAsFixed(0)}KB';
-  }
-
   Future<void> _loadProfile() async {
-    final sync = OmniSync.instance;
-    if (!sync.isLoggedIn) return;
+    if (!OmniSync.instance.isLoggedIn) return;
     setState(() => _loadingProfile = true);
-    try {
-      final uid = sync.session!.userId;
-      final res = await Dio(BaseOptions(
-        baseUrl: OmniSyncConfig.supabaseUrl,
-        headers: {
-          'apikey': OmniSyncConfig.anonKey,
-          'Authorization': 'Bearer ${sync.session!.accessToken}',
-        },
-      )).get('/rest/v1/profiles', queryParameters: {
-        'select': 'membership,storage_used',
-        'id': 'eq.$uid',
+    final p = await OmniProfileService.instance.fetch(force: true);
+    if (mounted) {
+      setState(() {
+        _profile = p;
+        _loadingProfile = false;
       });
-      final data = res.data as List;
-      if (data.isNotEmpty) {
-        setState(() {
-          _membership = data[0]['membership']?.toString();
-          _usedBytes = (data[0]['storage_used'] as num?)?.toDouble();
-        });
-      }
-    } catch (_) {
-      // profiles 表可能不存在，使用默认额度
-    } finally {
-      if (mounted) setState(() => _loadingProfile = false);
     }
   }
 
@@ -342,8 +306,10 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
   @override
   Widget build(BuildContext context) {
     final loggedIn = OmniSync.instance.isLoggedIn;
-    final quota = quotaOf(_membership);
-    final used = _usedBytes ?? 0;
+    // 额度按规划表：storage_quota_mb 优先，否则套餐（普通1GB/高级5GB/顶级10GB），免费0
+    final quotaMb = _profile?.effectiveQuotaMb ?? 0;
+    final usedMb = _profile?.storageUsedMb ?? 0;
+    final membershipLabel = _profile?.membershipLabel;
     return Scaffold(
       appBar: AppBar(title: Text("云同步管理".tl)),
       body: ListView(
@@ -393,37 +359,57 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
                             height: 14,
                             child:
                                 CircularProgressIndicator(strokeWidth: 2))
-                      else
+                      else if (loggedIn)
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: context.colorScheme.secondaryContainer,
+                            gradient: membershipLabel != null
+                                ? const LinearGradient(colors: [
+                                    Color(0xFF6366F1),
+                                    Color(0xFF8B5CF6)
+                                  ])
+                                : null,
+                            color: membershipLabel == null
+                                ? context.colorScheme.secondaryContainer
+                                : null,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            switch (_membership) {
-                              'vip' => 'VIP',
-                              'svip' => 'SVIP',
-                              _ => "免费用户".tl,
-                            },
-                            style: const TextStyle(fontSize: 12),
+                            membershipLabel ?? "免费用户".tl,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: membershipLabel != null
+                                  ? Colors.white
+                                  : null,
+                            ),
                           ),
                         ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   LinearProgressIndicator(
-                    value: quota > 0 ? (used / quota).clamp(0.0, 1.0) : 0,
+                    value: quotaMb > 0
+                        ? (usedMb / quotaMb).clamp(0.0, 1.0)
+                        : 0,
                     minHeight: 8,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    "${fmtBytes(used)} / ${fmtBytes(quota)}",
+                    "${OmniProfile.fmtMb(usedMb)} / ${OmniProfile.fmtMb(quotaMb)}",
                     style: TextStyle(
                         fontSize: 12, color: context.colorScheme.outline),
                   ),
+                  if (loggedIn && quotaMb <= 0) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      "免费用户暂无云端额度，升级会员开启更大空间（普通 1GB / 高级 5GB / 顶级 10GB）"
+                          .tl,
+                      style: TextStyle(
+                          fontSize: 12, color: context.colorScheme.outline),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -446,14 +432,8 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    showDialogMessage(
-                      context,
-                      "从电脑导入".tl,
-                      "在电脑浏览器打开 OmniHub 网页版，登录同一账号后即可互传图书。"
-                          .tl,
-                    );
-                  },
+                  onPressed: () =>
+                      context.to(() => const WifiTransferPage()),
                   icon: const Icon(Icons.computer, size: 18),
                   label: Text("从电脑导入".tl),
                 ),
@@ -461,7 +441,7 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => context.pop(),
+                  onPressed: () => importBooksFromDevice(context),
                   icon: const Icon(Icons.phone_android, size: 18),
                   label: Text("从本机导入".tl),
                 ),
@@ -470,7 +450,8 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            "「从本机导入」请返回主页，使用三点菜单中的「导入图书」。".tl,
+            "「从电脑导入」通过局域网 WiFi 传书；「从本机导入」支持 txt/epub 小说与 cbz/zip 漫画。"
+                .tl,
             style: TextStyle(fontSize: 12, color: context.colorScheme.outline),
           ),
         ],

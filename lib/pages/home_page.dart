@@ -19,6 +19,7 @@ import 'package:venera/pages/favorites/favorites_page.dart';
 import 'package:venera/pages/follow_updates_page.dart';
 import 'package:venera/pages/novel/novel_pages.dart';
 import 'package:venera/pages/search_page.dart';
+import 'package:venera/pages/shelf/import_export_pages.dart';
 import 'package:venera/pages/shelf/shelf_subpages.dart';
 import 'package:venera/utils/import_comic.dart';
 import 'package:venera/utils/translations.dart';
@@ -173,11 +174,7 @@ class _HomePageState extends State<HomePage>
         context.to(() => const CloudSyncManagePage());
         break;
       case 'import':
-        showDialog(
-          barrierDismissible: false,
-          context: App.rootContext,
-          builder: (context) => const _ImportComicsWidget(),
-        );
+        _showImportMenu();
         break;
       case 'display':
         context.to(() => const ShelfDisplaySettingsPage()).then((_) {
@@ -188,6 +185,54 @@ class _HomePageState extends State<HomePage>
         context.to(() => const RecentlyDeletedPage());
         break;
     }
+  }
+
+  /// 导入图书：从本机导入（文件管理器）/ WiFi 传书 / 漫画批量导入
+  void _showImportMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.phone_android),
+              title: Text("从本机导入".tl),
+              subtitle: Text("txt / epub 小说，cbz / zip 漫画".tl,
+                  style: const TextStyle(fontSize: 12)),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                importBooksFromDevice(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.wifi),
+              title: Text("从电脑导入（WiFi 传书）".tl),
+              subtitle: Text("同一网络下电脑浏览器上传".tl,
+                  style: const TextStyle(fontSize: 12)),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                context.to(() => const WifiTransferPage());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_copy_outlined),
+              title: Text("漫画批量导入".tl),
+              subtitle: Text("文件夹 / 压缩包 / EhViewer 下载".tl,
+                  style: const TextStyle(fontSize: 12)),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                showDialog(
+                  barrierDismissible: false,
+                  context: App.rootContext,
+                  builder: (context) => const _ImportComicsWidget(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildChips() {
@@ -826,6 +871,52 @@ class _HistoryTabState extends State<_HistoryTab>
             style: TextStyle(color: context.colorScheme.outline)),
       );
     }
+    // 跟随书架「切换为列表/宫格」设置
+    final isGrid = appdata.settings['shelfDisplayMode'] == 'grid';
+    void open(History h) => context.to(() => ComicPage(
+          id: h.id,
+          sourceKey: h.type.sourceKey,
+          cover: h.cover,
+          title: h.title,
+        ));
+    if (isGrid) {
+      // 宫格：封面 + 书名（如番茄历史页）
+      return GridView.builder(
+        padding: const EdgeInsets.all(12),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 120,
+          childAspectRatio: 0.62,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
+        itemCount: _history.length,
+        itemBuilder: (context, i) {
+          final h = _history[i];
+          return GestureDetector(
+            onTap: () => open(h),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SimpleComicTile(comic: h, heroID: h.hashCode),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  h.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 4),
       itemCount: _history.length,
@@ -845,12 +936,7 @@ class _HistoryTabState extends State<_HistoryTab>
             "第 @e 章 · 第 @p 页".tlParams({'e': h.ep, 'p': h.page}),
             style: const TextStyle(fontSize: 12),
           ),
-          onTap: () => context.to(() => ComicPage(
-                id: h.id,
-                sourceKey: h.type.sourceKey,
-                cover: h.cover,
-                title: h.title,
-              )),
+          onTap: () => open(h),
         );
       },
     );

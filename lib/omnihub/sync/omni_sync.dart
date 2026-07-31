@@ -17,9 +17,10 @@ import 'package:path_provider/path_provider.dart';
 
 class OmniSyncConfig {
   static const String supabaseUrl = 'https://mxvxlgjzeboktufumxbp.supabase.co';
-  // 与网页版相同的 anon key（公开密钥，安全性由 RLS 保证）
+  // 与网页版相同的 publishable key（公开密钥，安全性由 RLS 保证）
+  // 注：Supabase 已轮换密钥，旧的 JWT anon key 失效（注册/登录返回 401）
   static const String anonKey =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12eHhsZ2p6ZWJva3R1ZnVteGJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE3ODU0OTYsImV4cCI6MjA2NzM2MTQ5Nn0.QjSLfYAFhwX72YSeAcbTN5O2_PDLaNcv76HhdGJsqpo';
+      'sb_publishable_WzUzAQK5cOEsn7QwFB2cAw_ubIkG7RJ';
 }
 
 class OmniSession {

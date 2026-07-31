@@ -1065,7 +1065,12 @@ var java = {
           lines.map((u) => absUrl(u, chapter.url)).toList());
     }
 
-    return NovelContent.text(htmlToText(content));
+    // 全局替换规则（Legado 净化规则）
+    var text = htmlToText(content);
+    try {
+      text = LegadoExtras.instance.applyReplaceRules(text);
+    } catch (_) {}
+    return NovelContent.text(text);
   }
 }
 

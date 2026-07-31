@@ -220,6 +220,35 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                 ),
               ),
               const SizedBox(width: 8),
+              // 加入书架（番茄样式）
+              Builder(builder: (context) {
+                final inShelf = LocalFavoritesManager()
+                    .find(context.reader.cid, context.reader.type)
+                    .isNotEmpty;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor:
+                          inShelf ? context.colorScheme.outline : Colors.red,
+                      side: BorderSide(
+                          color: inShelf
+                              ? context.colorScheme.outline
+                              : Colors.red),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      minimumSize: const Size(0, 32),
+                    ),
+                    onPressed: toggleShelf,
+                    icon: Icon(
+                        inShelf
+                            ? Icons.bookmark_added
+                            : Icons.bookmark_add_outlined,
+                        size: 16),
+                    label: Text(inShelf ? "已在书架".tl : "加入书架".tl,
+                        style: const TextStyle(fontSize: 12)),
+                  ),
+                );
+              }),
               if (shouldShowChapterComments())
                 Tooltip(
                   message: "Chapter Comments".tl,
@@ -228,19 +257,44 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
                     onPressed: openChapterComments,
                   ),
                 ),
-              Tooltip(
-                message: "Settings".tl,
-                child: IconButton(
-                  icon: const Icon(Icons.settings),
-                  onPressed: openSetting,
-                ),
-              ),
               const SizedBox(width: 8),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// 加入/移出书架（本地收藏第一个分组）
+  void toggleShelf() {
+    final reader = context.reader;
+    final mgr = LocalFavoritesManager();
+    final folders = mgr.find(reader.cid, reader.type);
+    if (folders.isNotEmpty) {
+      for (final f in List.of(folders)) {
+        mgr.deleteComicWithId(f, reader.cid, reader.type);
+      }
+      showToast(message: "已移出书架".tl, context: context);
+    } else {
+      var names = mgr.folderNames;
+      if (names.isEmpty) {
+        mgr.createFolder("默认");
+        names = mgr.folderNames;
+      }
+      mgr.addComic(
+        names.first,
+        FavoriteItem(
+          id: reader.cid,
+          name: reader.widget.name,
+          author: reader.widget.author,
+          coverPath: reader.history?.cover ?? '',
+          type: reader.type,
+          tags: reader.widget.tags,
+        ),
+      );
+      showToast(message: "已加入书架".tl, context: context);
+    }
+    setState(() {});
   }
 
   bool isLiked() {
@@ -389,105 +443,7 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
   }
 
   Widget buildBottom() {
-    // Use maxPage for display (excluding chapter comments page)
-    final displayPage = context.reader.page.clamp(1, context.reader.maxPage);
-    var text = "E${context.reader.chapter} : P$displayPage";
-    if (context.reader.widget.chapters == null) {
-      text = "P$displayPage";
-    }
-
-    final buttons = [
-      Tooltip(
-        message: "Collect the image".tl,
-        child: IconButton(
-          icon: Icon(isLiked() ? Icons.favorite : Icons.favorite_border),
-          onPressed: addImageFavorite,
-        ),
-      ),
-      if (App.isDesktop)
-        Tooltip(
-          message: "${"Full Screen".tl}(F12)",
-          child: IconButton(
-            icon: const Icon(Icons.fullscreen),
-            onPressed: () {
-              context.reader.fullscreen();
-            },
-          ),
-        ),
-      if (App.isAndroid)
-        Tooltip(
-          message: "Screen Rotation".tl,
-          child: IconButton(
-            icon: () {
-              if (rotation == null) {
-                return const Icon(Icons.screen_rotation);
-              } else if (rotation == false) {
-                return const Icon(Icons.screen_lock_portrait);
-              } else {
-                return const Icon(Icons.screen_lock_landscape);
-              }
-            }.call(),
-            onPressed: () {
-              if (rotation == null) {
-                setState(() {
-                  rotation = false;
-                });
-                SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.portraitUp,
-                  DeviceOrientation.portraitDown,
-                ]);
-              } else if (rotation == false) {
-                setState(() {
-                  rotation = true;
-                });
-                SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.landscapeLeft,
-                  DeviceOrientation.landscapeRight,
-                ]);
-              } else {
-                setState(() {
-                  rotation = null;
-                });
-                SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-              }
-            },
-          ),
-        ),
-      Tooltip(
-        message: "Auto Page Turning".tl,
-        child: IconButton(
-          icon: context.reader.autoPageTurningTimer != null
-              ? const Icon(Icons.timer)
-              : const Icon(Icons.timer_sharp),
-          onPressed: () {
-            context.reader.autoPageTurning(
-              context.reader.cid,
-              context.reader.type,
-            );
-            update();
-          },
-        ),
-      ),
-      if (context.reader.widget.chapters != null)
-        Tooltip(
-          message: "Chapters".tl,
-          child: IconButton(
-            icon: const Icon(Icons.library_books),
-            onPressed: openChapterDrawer,
-          ),
-        ),
-      Tooltip(
-        message: "Save Image".tl,
-        child: IconButton(
-          icon: const Icon(Icons.download),
-          onPressed: saveCurrentImage,
-        ),
-      ),
-      Tooltip(
-        message: "Share".tl,
-        child: IconButton(icon: const Icon(Icons.share), onPressed: share),
-      ),
-    ];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Widget child = SizedBox(
       height: kBottomBarHeight,
@@ -521,32 +477,29 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
               const SizedBox(width: 8),
             ],
           ),
-          LayoutBuilder(
-            builder: (context, constrains) {
-              final small = (constrains.maxWidth - buttons.length * 50) < 120;
-              return Row(
-                children: [
-                  if (!small)
-                    Container(
-                      height: 24,
-                      padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.tertiaryContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Center(child: Text(text)),
-                    ).paddingLeft(16),
-                  const Spacer(),
-                  for (var button in buttons)
-                    if (!small)
-                      button.paddingHorizontal(4)
-                    else
-                      ...[button, const Spacer()],
-                  if (!small)
-                    const SizedBox(width: 4),
-                ],
-              );
-            },
+          // 番茄样式底栏：目录 / 日（夜）间 / 设置
+          Row(
+            children: [
+              _OmniBottomEntry(
+                icon: Icons.format_list_bulleted,
+                label: "目录".tl,
+                onTap: context.reader.widget.chapters != null
+                    ? openChapterDrawer
+                    : null,
+              ),
+              _OmniBottomEntry(
+                icon: isDark
+                    ? Icons.wb_sunny_outlined
+                    : Icons.dark_mode_outlined,
+                label: isDark ? "日间".tl : "夜间".tl,
+                onTap: toggleDayNight,
+              ),
+              _OmniBottomEntry(
+                icon: Icons.settings_outlined,
+                label: "设置".tl,
+                onTap: openOmniPanel,
+              ),
+            ],
           ),
         ],
       ),
@@ -575,6 +528,150 @@ class _ReaderScaffoldState extends State<_ReaderScaffold> {
         ),
       ),
     );
+  }
+
+  void toggleDayNight() {
+    final cur = appdata.settings['theme_mode']?.toString() ?? 'system';
+    final isDark = switch (cur) {
+      'dark' => true,
+      'light' => false,
+      _ => Theme.of(context).brightness == Brightness.dark,
+    };
+    appdata.settings['theme_mode'] = isDark ? 'light' : 'dark';
+    appdata.saveData();
+    App.forceRebuild();
+  }
+
+  /// 漫画阅读设置面板（番茄样式）：
+  /// 模式 / 画质 / 自动阅读 / 快捷功能 / 更多设置（原完整设置）
+  void openOmniPanel() {
+    _gestureDetectorState?.ignoreNextTap();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) {
+          final reader = context.reader;
+          final cid = reader.cid;
+          final sk = reader.type.sourceKey;
+          final modeKey = appdata.settings
+              .getReaderSetting(cid, sk, 'readerMode')
+              .toString();
+          final quality = appdata.settings
+              .getReaderSetting(cid, sk, 'readerImageQuality')
+              ?.toString() ?? 'hd';
+          final autoOn = reader.autoPageTurningTimer != null;
+
+          void setMode(String key) {
+            appdata.settings.setReaderSetting(cid, sk, 'readerMode', key);
+            appdata.saveData();
+            reader.mode = ReaderMode.fromKey(key);
+            reader.update();
+            setSheet(() {});
+            update();
+          }
+
+          void setQuality(String q) {
+            appdata.settings.setReaderSetting(cid, sk, 'readerImageQuality', q);
+            appdata.saveData();
+            reader.update();
+            setSheet(() {});
+          }
+
+          Widget chips(
+              List<(String, String, String)> options, String current,
+              void Function(String) onPick) {
+            return Wrap(
+              spacing: 8,
+              children: [
+                for (final (label, key, _) in options)
+                  ChoiceChip(
+                    label: Text(label),
+                    selected: current == key,
+                    onSelected: (_) => onPick(key),
+                  ),
+              ],
+            );
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 阅读模式
+                  chips([
+                    ("普通模式".tl, 'galleryLeftToRight', ''),
+                    ("日漫模式".tl, 'galleryRightToLeft', ''),
+                    ("上下模式".tl, 'continuousTopToBottom', ''),
+                  ], modeKey, setMode),
+                  const SizedBox(height: 16),
+                  // 画质
+                  chips([
+                    ("流畅画质".tl, 'smooth', ''),
+                    ("清晰画质".tl, 'hd', ''),
+                  ], quality, setQuality),
+                  const SizedBox(height: 8),
+                  // 自动阅读
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text("自动阅读".tl),
+                    value: autoOn,
+                    onChanged: (_) {
+                      reader.autoPageTurning(cid, reader.type);
+                      setSheet(() {});
+                      update();
+                    },
+                  ),
+                  const Divider(height: 20),
+                  // 快捷功能
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _QuickAction(
+                          icon: isLiked()
+                              ? Icons.favorite
+                              : Icons.favorite_border,
+                          label: "收藏图片".tl,
+                          onTap: () {
+                            Navigator.of(sheetContext).pop();
+                            addImageFavorite();
+                          }),
+                      _QuickAction(
+                          icon: Icons.download_outlined,
+                          label: "保存图片".tl,
+                          onTap: () {
+                            Navigator.of(sheetContext).pop();
+                            saveCurrentImage();
+                          }),
+                      _QuickAction(
+                          icon: Icons.share_outlined,
+                          label: "分享".tl,
+                          onTap: () {
+                            Navigator.of(sheetContext).pop();
+                            share();
+                          }),
+                      _QuickAction(
+                          icon: Icons.more_horiz,
+                          label: "更多设置".tl,
+                          onTap: () {
+                            Navigator.of(sheetContext).pop();
+                            openSetting();
+                          }),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(() {
+      _gestureDetectorState?.clearIgnoreNextTap();
+    });
   }
 
   var sliderFocus = FocusNode();
@@ -1175,6 +1272,75 @@ class _SelectImageOverlayContentState
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 番茄样式底栏入口
+class _OmniBottomEntry extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _OmniBottomEntry({
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Opacity(
+            opacity: enabled ? 1 : 0.4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22),
+                const SizedBox(height: 2),
+                Text(label, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 设置面板里的快捷功能按钮
+class _QuickAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 24),
+            const SizedBox(height: 4),
+            Text(label, style: const TextStyle(fontSize: 11)),
+          ],
         ),
       ),
     );

@@ -16,6 +16,7 @@ import 'foundation/app.dart';
 import 'foundation/appdata.dart';
 import 'headless.dart';
 import 'init.dart';
+import 'omnihub/splash.dart';
 
 void main(List<String> args) {
   if (args.contains('--headless')) {
@@ -187,6 +188,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     } else {
       home = const MainPage();
     }
+    // 开屏动画（与网页版一致，仅 App 启动时展示一次）
+    home = OmniSplashScreen(child: home);
     return DynamicColorBuilder(builder: (light, dark) {
       Color? primary, secondary, tertiary;
       if (appdata.settings['color'] != 'system' ||

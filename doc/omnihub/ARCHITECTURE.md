@@ -83,3 +83,17 @@ lib/
 
 ### 版本号
 - pubspec: 1.9.0+190。安卓允许 x.y.z+build（网页版仍严格 x.y）。
+
+## v1.10.0（2026-07-31）
+
+- **账号修复**：Supabase anon key 轮换，换用 publishable key（修复注册/登录 401）
+- **导航**：发现/AI/书架（书架图标）/分类/设置
+- **设置页**：番茄「我的」式——用户卡（头像/昵称/会员标）+ 浏览历史快捷入口 + 书源管理入口 + 原设置列表；删除错误的返回键
+- **会员额度**：profile.dart 与网页版 PLAN_CARDS 对齐（storage_quota_mb 优先；普通 1GB/高级 5GB/顶级 10GB；免费 0）
+- **本机导入**：文件管理器选 txt/epub（GBK 自动识别、章节拆分、EPUB OPF/NCX 解析）+ cbz/zip 漫画
+- **WiFi 传书**：局域网 HttpServer:1967 + 网页上传页，txt/epub 自动入小说书架
+- **小说阅读器**：番茄样式——顶栏加入书架/听，底栏目录/日夜间/设置 + 章节滑条
+- **听书**：flutter_tts 系统语音 + Edge TTS 在线语音（8 音色/语速/自动续章）
+- **漫画阅读器**：顶栏加入书架；底栏目录/日夜间/设置；设置面板（普通/日漫/上下模式、流畅/清晰画质、自动阅读、快捷功能、更多设置）
+- **书源全格式**：URL/文件(.json/.txt)/二维码/剪贴板导入；legado://import/{bookSource,textTocRule,replaceRule,httpTTS}?src= 协议；TXT目录规则、正文替换净化规则
+- **开屏动画**：移植网页版 #splash（靛紫渐变 logo + 纵横四海·引领无限）

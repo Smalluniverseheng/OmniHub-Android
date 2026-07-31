@@ -1,5 +1,17 @@
 part of 'reader.dart';
 
+/// 画质设置：流畅画质 → 限制解码宽度（省内存更流畅），清晰画质 → 原始分辨率
+int? _readerQualityCacheWidth(BuildContext context) {
+  try {
+    final q = appdata.settings.getReaderSetting(context.reader.cid,
+        context.reader.type.sourceKey, 'readerImageQuality');
+    if (q == 'smooth') return 1080;
+  } catch (_) {}
+  return null;
+}
+
+
+
 class _ReaderImages extends StatefulWidget {
   const _ReaderImages({super.key});
 
@@ -425,6 +437,7 @@ class _GalleryModeState extends State<_GalleryMode>
       imageWidgets = [
         Expanded(
           child: ComicImage(
+            cacheWidth: _readerQualityCacheWidth(context),
             width: double.infinity,
             height: double.infinity,
             image: _createImageProviderFromKey(
@@ -442,6 +455,7 @@ class _GalleryModeState extends State<_GalleryMode>
         ),
         Expanded(
           child: ComicImage(
+            cacheWidth: _readerQualityCacheWidth(context),
             width: double.infinity,
             height: double.infinity,
             image: _createImageProviderFromKey(
@@ -468,6 +482,7 @@ class _GalleryModeState extends State<_GalleryMode>
         );
         return Expanded(
           child: ComicImage(
+            cacheWidth: _readerQualityCacheWidth(context),
             image: imageProvider,
             fit: BoxFit.contain,
             onInit: (state) => imageStates.add(state),
@@ -874,6 +889,7 @@ class _ContinuousModeState extends State<_ContinuousMode>
         return ColoredBox(
           color: context.colorScheme.surface,
           child: ComicImage(
+            cacheWidth: _readerQualityCacheWidth(context),
             filterQuality: FilterQuality.medium,
             image: image,
             width: width,

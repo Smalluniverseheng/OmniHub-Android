@@ -2,7 +2,7 @@ name: venera
 description: "A comic app."
 publish_to: 'none'
 
-version: 1.9.0+190
+version: 1.10.0+200
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -23,6 +23,11 @@ dependencies:
   crypto: ^3.0.6
   dio: ^5.9.2
   html: ^0.15.6
+  archive: ^3.6.1
+  flutter_tts: ^4.2.2
+  just_audio: ^0.9.46
+  web_socket_channel: ^3.0.1
+  mobile_scanner: ^6.0.2
   pointycastle: ^4.0.0
   url_launcher: ^6.3.2
   path: ^1.9.0
@@ -93,7 +98,6 @@ dev_dependencies:
   flutter_to_debian: 
     git:
       url: https://github.com/venera-app/flutter_to_debian.git
-  archive: any
 
 flutter:
   uses-material-design: true

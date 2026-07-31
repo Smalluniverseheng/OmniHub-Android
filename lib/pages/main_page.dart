@@ -45,12 +45,14 @@ class _MainPageState extends State<MainPage> {
   }
 
   final _pages = [
-    const HomePage(),
+    const ExplorePage(
+      key: PageStorageKey('explore'),
+    ),
     const AiChatListPage(
       key: PageStorageKey('ai'),
     ),
-    const ExplorePage(
-      key: PageStorageKey('explore'),
+    const HomePage(
+      key: PageStorageKey('shelf'),
     ),
     const CategoriesPage(
       key: PageStorageKey('categories'),
@@ -70,9 +72,9 @@ class _MainPageState extends State<MainPage> {
       navigatorKey: _navigatorKey!,
       paneItems: [
         PaneItemEntry(
-          label: 'Home'.tl,
-          icon: Icons.home_outlined,
-          activeIcon: Icons.home,
+          label: 'Explore'.tl,
+          icon: Icons.explore_outlined,
+          activeIcon: Icons.explore,
         ),
         PaneItemEntry(
           label: 'AI'.tl,
@@ -80,9 +82,9 @@ class _MainPageState extends State<MainPage> {
           activeIcon: Icons.smart_toy,
         ),
         PaneItemEntry(
-          label: 'Explore'.tl,
-          icon: Icons.explore_outlined,
-          activeIcon: Icons.explore,
+          label: 'Bookshelf'.tl,
+          icon: Icons.library_books_outlined,
+          activeIcon: Icons.library_books,
         ),
         PaneItemEntry(
           label: 'Categories'.tl,
@@ -101,7 +103,7 @@ class _MainPageState extends State<MainPage> {
         });
       },
       paneActions: [
-        if(index != 0)
+        if(index != 2)
           PaneActionEntry(
             icon: Icons.search,
             label: "Search".tl,

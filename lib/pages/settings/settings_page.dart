@@ -18,9 +18,12 @@ import 'package:venera/omnihub/ai/ai_api.dart';
 import 'package:venera/omnihub/ai/ai_providers.dart';
 import 'package:venera/omnihub/ai/ai_store.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
+import 'package:venera/omnihub/sync/profile.dart';
 import 'package:venera/omnihub/sync/bookshelf_sync.dart';
 import 'package:venera/pages/ai_chat_page.dart';
 import 'package:venera/pages/ai_models_page.dart';
+import 'package:venera/pages/history_page.dart';
+import 'package:venera/pages/novel/novel_pages.dart';
 import 'package:venera/utils/data.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/io.dart';
@@ -81,10 +84,18 @@ class _SettingsPageState extends State<SettingsPage> {
     Icons.bug_report,
   ];
 
+  OmniProfile? _profile;
+
   @override
   void initState() {
     currentPage = widget.initialPage;
     super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final p = await OmniProfileService.instance.fetch();
+    if (mounted) setState(() => _profile = p);
   }
 
   @override
@@ -161,35 +172,145 @@ class _SettingsPageState extends State<SettingsPage> {
           SizedBox(
             height: MediaQuery.of(context).padding.top,
           ),
-          SizedBox(
-            height: 56,
-            child: Row(children: [
-              const SizedBox(
-                width: 8,
-              ),
-              Tooltip(
-                message: "Back",
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: context.pop,
-                ),
-              ),
-              const SizedBox(
-                width: 24,
-              ),
-              Text(
-                "Settings".tl,
-                style: ts.s20,
-              )
-            ]),
-          ),
-          const SizedBox(
-            height: 4,
-          ),
+          const SizedBox(height: 8),
+          // 顶部用户信息卡（番茄「我的」样式）
+          _buildUserCard(),
+          // 快捷入口栏：只保留浏览历史
+          _buildQuickBar(),
+          const SizedBox(height: 4),
+          const Divider(height: 1),
           Expanded(
             child: buildCategories(),
           )
         ],
+      ),
+    );
+  }
+
+  Widget _buildUserCard() {
+    final session = OmniSync.instance.session;
+    final nickname = _profile?.nickname.isNotEmpty == true
+        ? _profile!.nickname
+        : (session?.email ?? '');
+    final membership = _profile?.membershipLabel;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          // 点卡片 → 云同步（账号）页
+          if (enableTwoViews) {
+            setState(() => currentPage = 7);
+          } else {
+            context.to(() => const _SettingsDetailPage(pageIndex: 7));
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 28,
+                backgroundColor: colors.primaryContainer,
+                child: session == null
+                    ? Icon(Icons.person_outline,
+                        size: 30, color: colors.onPrimaryContainer)
+                    : Text(
+                        nickname.isNotEmpty
+                            ? nickname.characters.first.toUpperCase()
+                            : 'U',
+                        style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: colors.onPrimaryContainer),
+                      ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            session == null ? "未登录".tl : nickname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        if (membership != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              membership,
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      session == null
+                          ? "登录后可同步书架与数据".tl
+                          : (_profile != null
+                              ? "云端额度 @q".tlParams({
+                                  'q': OmniProfile.fmtMb(
+                                      _profile!.effectiveQuotaMb),
+                                })
+                              : "点击管理账号与同步".tl),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: colors.outline),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: colors.outline),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Material(
+        color: colors.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => context.to(() => const HistoryPage()),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(Icons.history, color: colors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text("浏览历史".tl, style: ts.s16),
+                ),
+                Icon(Icons.chevron_right, color: colors.outline),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -244,8 +365,33 @@ class _SettingsPageState extends State<SettingsPage> {
 
     return ListView.builder(
       padding: EdgeInsets.zero,
-      itemCount: categories.length,
-      itemBuilder: (context, index) => buildItem(categories[index].tl, index),
+      itemCount: categories.length + 1,
+      itemBuilder: (context, index) {
+        // 首位：书源管理（Legado 书源）
+        if (index == 0) {
+          return InkWell(
+            onTap: () => context.to(() => const NovelSourcesPage()),
+            child: SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: Row(children: [
+                const SizedBox(width: 12),
+                const Icon(Icons.dns_outlined),
+                const SizedBox(width: 16),
+                Text(
+                  "书源管理".tl,
+                  style: ts.s16,
+                ),
+                const Spacer(),
+                Icon(Icons.chevron_right,
+                    size: 20, color: colors.outline),
+                const SizedBox(width: 12),
+              ]),
+            ),
+          );
+        }
+        return buildItem(categories[index - 1].tl, index - 1);
+      },
     );
   }
 
