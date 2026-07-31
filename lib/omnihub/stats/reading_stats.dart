@@ -137,14 +137,16 @@ class ReadingStats extends ChangeNotifier {
         }));
     await OmniSync.instance.pushRecords('stats', records);
     final remote = await OmniSync.instance.pullModule('stats');
-    remote.forEach((k, v) {
-      if (v is Map && v['_deleted'] == true) return;
-      final r = DayStat.fromJson(Map<String, dynamic>.from(v as Map));
+    for (final row in remote) {
+      final k = row['key']?.toString() ?? '';
+      final v = row['value'];
+      if (k.isEmpty || v is! Map || v['_deleted'] == true) continue;
+      final r = DayStat.fromJson(Map<String, dynamic>.from(v));
       final local = days[k];
       if (local == null || r.updatedAt > local.updatedAt) {
         days[k] = r;
       }
-    });
+    }
     await save();
     notifyListeners();
   }

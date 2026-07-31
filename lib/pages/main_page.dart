@@ -46,14 +46,17 @@ class _MainPageState extends State<MainPage> {
 
   final _pages = [
     const HomePage(),
-    const FavoritesPage(
-      key: PageStorageKey('favorites'),
+    const AiChatListPage(
+      key: PageStorageKey('ai'),
     ),
     const ExplorePage(
       key: PageStorageKey('explore'),
     ),
     const CategoriesPage(
       key: PageStorageKey('categories'),
+    ),
+    const SettingsPage(
+      key: PageStorageKey('settings'),
     ),
   ];
 

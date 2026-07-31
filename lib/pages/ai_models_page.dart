@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/utils/translations.dart';
 
 import '../omnihub/ai/ai_models.dart';
 import '../omnihub/ai/ai_store.dart';

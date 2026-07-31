@@ -85,10 +85,12 @@ class AiModels {
     return list().where((m) => m.type == type).toList();
   }
 
-  static List<AiModel> search(String keyword) {
+  static List<AiModel> search(String keyword, {String type = 'all'}) {
     final kw = keyword.trim().toLowerCase();
-    if (kw.isEmpty) return list();
-    return list()
+    var res = list();
+    if (type != 'all') res = res.where((m) => m.type == type).toList();
+    if (kw.isEmpty) return res;
+    return res
         .where((m) =>
             m.id.toLowerCase().contains(kw) ||
             m.name.toLowerCase().contains(kw) ||
