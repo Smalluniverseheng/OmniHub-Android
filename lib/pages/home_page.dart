@@ -9,6 +9,7 @@ import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
+import 'package:venera/pages/ai_chat_page.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/downloading_page.dart';
@@ -70,6 +71,14 @@ class _SearchBar extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text('Search'.tl, style: ts.s16),
                 const Spacer(),
+                IconButton(
+                  tooltip: "AI Chat".tl,
+                  icon: const Icon(Icons.smart_toy_outlined),
+                  onPressed: () {
+                    context.to(() => const AiChatListPage());
+                  },
+                ),
+                const SizedBox(width: 8),
               ],
             ),
           ),

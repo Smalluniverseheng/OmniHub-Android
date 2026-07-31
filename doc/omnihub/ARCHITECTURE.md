@@ -38,3 +38,14 @@ lib/
 
 - Venera / Legado 均为 GPL-3.0，本仓库整体继承 GPL-3.0，保留上游版权声明与 LICENSE
 - 不内置任何第三方书源/图源内容，仅提供引擎与用户自导入能力
+
+## v1.8 AI 模块（2026-07-31）
+
+- `lib/omnihub/ai/`：AI 核心层
+  - `ai_providers.dart`：厂商注册表，与网页版 js/ai-providers.js 对齐（openai/anthropic/google 三格式）
+  - `ai_api.dart`：dio 直连用户 API（BYOK），三格式 SSE 流式输出 + validateKey 测试连接
+  - `ai_store.dart`：Key/选中模型/对话记录本地 JSON 持久化（Key 仅本地，不上云）
+  - `annotations.dart`：阅读注释（手写笔记 + AI 问答留痕，参考 read-aware ask-note），
+    经 Supabase user_data 表 module=annotations 与网页端互通（含墓碑删除）
+- UI：设置页新增「AI」分类（BYOK 填 Key/选模型/测试连接）；主页搜索栏右侧 AI 对话入口；
+  漫画详情页菜单新增「问 AI」（携带书名/简介/标签/章节上下文开聊）与「注释」页

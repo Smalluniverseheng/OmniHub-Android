@@ -301,6 +301,45 @@ abstract mixin class _ComicPageActions {
     target?.jump(context);
   }
 
+  /// 书籍标识（注释归属用）：comicId@sourceKey
+  String get bookRef => '${comic.id}@${comic.sourceKey}';
+
+  /// 拼装书籍上下文，打开 AI 对话
+  void askAi() {
+    final buffer = StringBuffer()
+      ..writeln('书名：${comic.title}')
+      ..writeln('来源：${comicSource.name}');
+    if (comic.subTitle != null && comic.subTitle!.isNotEmpty) {
+      buffer.writeln('作者/副标题：${comic.subTitle}');
+    }
+    final tags = <String>[];
+    for (final e in comic.tags.entries) {
+      tags.addAll(e.value.take(8));
+    }
+    if (tags.isNotEmpty) buffer.writeln('标签：${tags.join('、')}');
+    if (comic.description != null && comic.description!.isNotEmpty) {
+      var desc = comic.description!;
+      if (desc.length > 800) desc = desc.substring(0, 800);
+      buffer.writeln('简介：$desc');
+    }
+    if (comic.chapters != null && comic.chapters!.allChapters.isNotEmpty) {
+      final titles = comic.chapters!.allChapters.values.toList();
+      final shown = titles.take(30).join('、');
+      buffer.writeln('章节（共 ${titles.length} 章）：$shown${titles.length > 30 ? ' …' : ''}');
+    }
+    App.rootContext.to(() => AiChatPage(
+          bookContext: buffer.toString(),
+          bookRef: bookRef,
+        ));
+  }
+
+  void openAnnotations() {
+    App.rootContext.to(() => AiAnnotationsPage(
+          bookRef: bookRef,
+          bookTitle: comic.title,
+        ));
+  }
+
   void showMoreActions() {
     var context = App.rootContext;
     showMenuX(
@@ -310,6 +349,16 @@ abstract mixin class _ComicPageActions {
           context.padding.top,
         ),
         [
+          MenuEntry(
+            icon: Icons.smart_toy_outlined,
+            text: "Ask AI".tl,
+            onClick: askAi,
+          ),
+          MenuEntry(
+            icon: Icons.note_alt_outlined,
+            text: "AI Notes".tl,
+            onClick: openAnnotations,
+          ),
           MenuEntry(
             icon: Icons.copy,
             text: "Copy Title".tl,

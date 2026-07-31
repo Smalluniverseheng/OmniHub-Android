@@ -14,8 +14,12 @@ import 'package:venera/foundation/js_engine.dart';
 import 'package:venera/foundation/local.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/app_dio.dart';
+import 'package:venera/omnihub/ai/ai_api.dart';
+import 'package:venera/omnihub/ai/ai_providers.dart';
+import 'package:venera/omnihub/ai/ai_store.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
 import 'package:venera/omnihub/sync/bookshelf_sync.dart';
+import 'package:venera/pages/ai_chat_page.dart';
 import 'package:venera/utils/data.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/io.dart';
@@ -31,6 +35,7 @@ part 'app.dart';
 part 'about.dart';
 part 'network.dart';
 part 'omni_sync.dart';
+part 'ai.dart';
 part 'debug.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -56,6 +61,7 @@ class _SettingsPageState extends State<SettingsPage> {
     "Local Favorites",
     "APP",
     "Network",
+    "AI",
     "Cloud Sync",
     "About",
     "Debug"
@@ -68,6 +74,7 @@ class _SettingsPageState extends State<SettingsPage> {
     Icons.collections_bookmark_rounded,
     Icons.apps,
     Icons.public,
+    Icons.smart_toy,
     Icons.sync,
     Icons.info,
     Icons.bug_report,
@@ -265,9 +272,10 @@ class _SettingsPageState extends State<SettingsPage> {
       3 => const LocalFavoritesSettings(),
       4 => const AppSettings(),
       5 => const NetworkSettings(),
-      6 => const OmniSyncSettings(),
-      7 => const AboutSettings(),
-      8 => const DebugPage(),
+      6 => const AiSettings(),
+      7 => const OmniSyncSettings(),
+      8 => const AboutSettings(),
+      9 => const DebugPage(),
       _ => throw UnimplementedError()
     };
   }
@@ -294,9 +302,10 @@ class _SettingsDetailPage extends StatelessWidget {
       3 => const LocalFavoritesSettings(),
       4 => const AppSettings(),
       5 => const NetworkSettings(),
-      6 => const OmniSyncSettings(),
-      7 => const AboutSettings(),
-      8 => const DebugPage(),
+      6 => const AiSettings(),
+      7 => const OmniSyncSettings(),
+      8 => const AboutSettings(),
+      9 => const DebugPage(),
       _ => throw UnimplementedError()
     };
   }
