@@ -13,7 +13,8 @@ export "widget_utils.dart";
 export "context.dart";
 
 class _App {
-  final version = "1.6.3";
+  /// 应用版本号 —— 发版时必须与 pubspec.yaml 的 version 保持一致
+  final version = "1.12.0";
 
   bool get isAndroid => Platform.isAndroid;
 

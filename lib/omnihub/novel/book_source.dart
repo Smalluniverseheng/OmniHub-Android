@@ -83,6 +83,8 @@ class NovelBook {
   final String tocUrl;
   final String sourceName;
   final String mediaType;
+  final String wordCount; // 字数（书源搜索规则 wordCount，可为空）
+  final String kind; // 标签/分类（书源搜索规则 kind，可为空）
 
   const NovelBook({
     required this.name,
@@ -94,7 +96,39 @@ class NovelBook {
     this.tocUrl = '',
     required this.sourceName,
     this.mediaType = 'novel',
+    this.wordCount = '',
+    this.kind = '',
   });
+
+  /// 把「123万字 / 1234567 / 12.3万」等字数文本解析为可排序的数字
+  int get wordCountValue {
+    final t = wordCount.replaceAll(',', '').trim();
+    if (t.isEmpty) return 0;
+    final m = RegExp(r'([\d.]+)\s*(万|亿)?').firstMatch(t);
+    if (m == null) return 0;
+    var v = double.tryParse(m.group(1)!) ?? 0;
+    if (m.group(2) == '万') v *= 10000;
+    if (m.group(2) == '亿') v *= 100000000;
+    return v.round();
+  }
+
+  NovelBook copyWith({
+    String? name, String? author, String? intro, String? cover,
+    String? lastChapter, String? url, String? tocUrl, String? sourceName,
+    String? mediaType, String? wordCount, String? kind,
+  }) => NovelBook(
+        name: name ?? this.name,
+        author: author ?? this.author,
+        intro: intro ?? this.intro,
+        cover: cover ?? this.cover,
+        lastChapter: lastChapter ?? this.lastChapter,
+        url: url ?? this.url,
+        tocUrl: tocUrl ?? this.tocUrl,
+        sourceName: sourceName ?? this.sourceName,
+        mediaType: mediaType ?? this.mediaType,
+        wordCount: wordCount ?? this.wordCount,
+        kind: kind ?? this.kind,
+      );
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -106,6 +140,8 @@ class NovelBook {
         'tocUrl': tocUrl,
         'sourceName': sourceName,
         'mediaType': mediaType,
+        'wordCount': wordCount,
+        'kind': kind,
       };
 
   factory NovelBook.fromJson(Map<String, dynamic> j) => NovelBook(
@@ -118,6 +154,8 @@ class NovelBook {
         tocUrl: (j['tocUrl'] ?? '').toString(),
         sourceName: (j['sourceName'] ?? '').toString(),
         mediaType: (j['mediaType'] ?? 'novel').toString(),
+        wordCount: (j['wordCount'] ?? '').toString(),
+        kind: (j['kind'] ?? '').toString(),
       );
 }
 

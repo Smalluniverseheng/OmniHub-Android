@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 class OmniSyncConfig {
@@ -58,7 +59,7 @@ class OmniSession {
       );
 }
 
-class OmniSync {
+class OmniSync extends ChangeNotifier {
   OmniSync._();
   static final OmniSync instance = OmniSync._();
 
@@ -164,10 +165,10 @@ class OmniSync {
 
   /// 邮箱注册
   ///
-  /// 优先走服务端 RPC `omnihub_signup`（管理员通道：绕过邮箱域名校验与
-  /// 发信限流，创建即确认），成功后直接密码登录；RPC 不可用时回退官方
-  /// /auth/v1/signup。所有错误统一翻译成中文抛出。
-  Future<void> signUp(String email, String password, {String name = ''}) async {
+  /// 走服务端 RPC `omnihub_signup`（绕过邮箱域名校验与发信限流）。
+  /// 返回 'ok' = 已登录；返回 'verify' = 需要输入邮箱验证码（验证码已发送）。
+  /// RPC 不可用时回退官方 /auth/v1/signup。所有错误统一翻译成中文抛出。
+  Future<String> signUp(String email, String password, {String name = ''}) async {
     // 1) RPC 管理员通道
     try {
       final res = await _dio.post(
@@ -181,8 +182,15 @@ class OmniSync {
       );
       final j = res.data;
       if (j is Map && j['ok'] == true) {
+        if (j['need_verification'] == true) {
+          // 触发验证码邮件（失败不阻塞，用户可在验证页点"重发"）
+          try {
+            await sendVerificationEmail(email);
+          } catch (_) {}
+          return 'verify';
+        }
         await signIn(email, password);
-        return;
+        return 'ok';
       }
       final err = (j is Map ? j['error'] : null)?.toString() ?? '注册失败';
       throw Exception(err);
@@ -203,10 +211,66 @@ class OmniSync {
       if (j['access_token'] != null) {
         _session = _parseAuthResponse(j);
         await _saveSession();
+        notifyListeners();
       }
     } on DioException catch (e) {
       throw Exception(friendlyAuthError(e));
     }
+    return 'ok';
+  }
+
+  /// 调用 Edge Function 发送验证码邮件
+  Future<void> sendVerificationEmail(String email) async {
+    final res = await _dio.post(
+      '/functions/v1/send-verification-email',
+      data: {'email': email},
+      options: Options(headers: {
+        'apikey': OmniSyncConfig.anonKey,
+        'Authorization': 'Bearer ${OmniSyncConfig.anonKey}',
+        'Content-Type': 'application/json',
+      }),
+    );
+    final j = res.data;
+    if (j is Map && j['ok'] != true) {
+      throw Exception((j['error'] ?? '邮件发送失败').toString());
+    }
+  }
+
+  /// 重发验证码（60 秒频率限制由服务端控制）
+  Future<void> resendVerificationCode(String email) async {
+    final res = await _dio.post(
+      '/rest/v1/rpc/omnihub_resend_code',
+      data: {'p_email': email},
+      options: Options(headers: {
+        'apikey': OmniSyncConfig.anonKey,
+        'Authorization': 'Bearer ${OmniSyncConfig.anonKey}',
+        'Content-Type': 'application/json',
+      }),
+    );
+    final j = res.data;
+    if (j is Map && j['ok'] != true) {
+      throw Exception((j['error'] ?? '发送失败').toString());
+    }
+    await sendVerificationEmail(email);
+  }
+
+  /// 校验验证码，通过后自动登录
+  Future<void> verifyEmailAndSignIn(
+      String email, String code, String password) async {
+    final res = await _dio.post(
+      '/rest/v1/rpc/omnihub_verify_email',
+      data: {'p_email': email, 'p_code': code},
+      options: Options(headers: {
+        'apikey': OmniSyncConfig.anonKey,
+        'Authorization': 'Bearer ${OmniSyncConfig.anonKey}',
+        'Content-Type': 'application/json',
+      }),
+    );
+    final j = res.data;
+    if (j is Map && j['ok'] != true) {
+      throw Exception((j['error'] ?? '验证失败').toString());
+    }
+    await signIn(email, password);
   }
 
   /// 邮箱登录
@@ -222,7 +286,20 @@ class OmniSync {
       );
       _session = _parseAuthResponse(res.data as Map<String, dynamic>);
       await _saveSession();
+      notifyListeners();
     } on DioException catch (e) {
+      // 已注册但未验证邮箱 → 抛特殊标记，UI 弹验证码框
+      final d = e.response?.data;
+      final m = d is Map
+          ? '${d['error_code'] ?? ''} ${d['msg'] ?? d['message'] ?? ''}'
+          : '';
+      if (m.contains('email_not_confirmed') || m.contains('Email not confirmed')) {
+        // 顺便补发一封验证码
+        try {
+          await resendVerificationCode(email);
+        } catch (_) {}
+        throw Exception('NEED_VERIFICATION');
+      }
       throw Exception(friendlyAuthError(e));
     }
   }
@@ -248,6 +325,7 @@ class OmniSync {
   Future<void> signOut() async {
     _session = null;
     await _saveSession();
+    notifyListeners();
   }
 
   Future<void> _ensureFresh() async {

@@ -112,3 +112,14 @@ lib/
 - 影视模块（TVBox 视频解析）：lib/omnihub/video/tvbox.dart（苹果 CMS JSON API：
   搜索/分类/详情/选集）+ lib/pages/video/video_pages.dart（搜索页、源管理、详情、
   video_player 播放器）。书架菜单新增「影视」入口。
+
+## v1.12.0（2026-08）
+- 关于页版本号与 pubspec 同步（App.version = 1.12.0）
+- 设置页新增「漫画源管理」入口（ComicSourcePage）
+- OmniSync 改为 ChangeNotifier，登录/登出后设置页用户卡片即时刷新
+- 番茄风格编辑个人资料页（头像/背景图本地持久化，昵称同步 profiles）
+- 小说搜索：聚合/精确模式、标签与书源筛选、字数/书名排序；NovelBook 增加 wordCount/kind
+- 修复搜索结果点进详情空白：始终显示书籍信息头，目录为空给出重试提示
+- 邮箱验证：RPC omnihub_signup 改为创建未验证用户+6位验证码（email_verification_codes 表），
+  Edge Function send-verification-email 经 163 SMTP 发码，omnihub_verify_email 校验激活，
+  omnihub_resend_code 60s 限频；登录遇到 email_not_confirmed 自动补发验证码并弹验证框

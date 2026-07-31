@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_reorderable_grid_view/widgets/reorderable_builder.dart';
@@ -25,7 +26,9 @@ import 'package:venera/omnihub/sync/bookshelf_sync.dart';
 import 'package:venera/pages/ai_chat_page.dart';
 import 'package:venera/pages/ai_models_page.dart';
 import 'package:venera/pages/history_page.dart';
+import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/novel/novel_pages.dart';
+import 'edit_profile.dart';
 import 'package:venera/utils/data.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/io.dart';
@@ -93,6 +96,21 @@ class _SettingsPageState extends State<SettingsPage> {
     currentPage = widget.initialPage;
     super.initState();
     _loadProfile();
+    // 登录/登出后立即刷新用户卡片
+    OmniSync.instance.addListener(_onAuthChanged);
+  }
+
+  void _onAuthChanged() {
+    if (mounted) {
+      setState(() {});
+      _loadProfile();
+    }
+  }
+
+  @override
+  void dispose() {
+    OmniSync.instance.removeListener(_onAuthChanged);
+    super.dispose();
   }
 
   Future<void> _loadProfile() async {
@@ -191,17 +209,25 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _buildUserCard() {
     final session = OmniSync.instance.session;
-    final nickname = _profile?.nickname.isNotEmpty == true
-        ? _profile!.nickname
-        : (session?.email ?? '');
+    final localNick = (appdata.settings['profileNickname'] as String?) ?? '';
+    final nickname = localNick.isNotEmpty
+        ? localNick
+        : (_profile?.nickname.isNotEmpty == true
+            ? _profile!.nickname
+            : (session?.email ?? ''));
+    final avatarPath = (appdata.settings['profileAvatar'] as String?) ?? '';
+    final hasAvatar =
+        avatarPath.isNotEmpty && File(avatarPath).existsSync();
     final membership = _profile?.membershipLabel;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () {
-          // 点卡片 → 云同步（账号）页
-          if (enableTwoViews) {
+          // 已登录 → 编辑个人资料；未登录 → 云同步（账号）页
+          if (session != null) {
+            context.to(() => const EditProfilePage());
+          } else if (enableTwoViews) {
             setState(() => currentPage = 7);
           } else {
             context.to(() => const _SettingsDetailPage(pageIndex: 7));
@@ -214,7 +240,10 @@ class _SettingsPageState extends State<SettingsPage> {
               CircleAvatar(
                 radius: 28,
                 backgroundColor: colors.primaryContainer,
-                child: session == null
+                backgroundImage: hasAvatar ? FileImage(File(avatarPath)) : null,
+                child: hasAvatar
+                    ? null
+                    : session == null
                     ? Icon(Icons.person_outline,
                         size: 30, color: colors.onPrimaryContainer)
                     : Text(
@@ -365,34 +394,49 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     }
 
+    Widget sourceEntry({
+      required IconData icon,
+      required String title,
+      required VoidCallback onTap,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: double.infinity,
+          height: 46,
+          child: Row(children: [
+            const SizedBox(width: 12),
+            Icon(icon),
+            const SizedBox(width: 16),
+            Text(title, style: ts.s16),
+            const Spacer(),
+            Icon(Icons.chevron_right, size: 20, color: colors.outline),
+            const SizedBox(width: 12),
+          ]),
+        ),
+      );
+    }
+
     return ListView.builder(
       padding: EdgeInsets.zero,
-      itemCount: categories.length + 1,
+      itemCount: categories.length + 2,
       itemBuilder: (context, index) {
-        // 首位：书源管理（Legado 书源）
+        // 前两位：书源管理（Legado 书源）与漫画源管理
         if (index == 0) {
-          return InkWell(
+          return sourceEntry(
+            icon: Icons.dns_outlined,
+            title: "书源管理".tl,
             onTap: () => context.to(() => const NovelSourcesPage()),
-            child: SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: Row(children: [
-                const SizedBox(width: 12),
-                const Icon(Icons.dns_outlined),
-                const SizedBox(width: 16),
-                Text(
-                  "书源管理".tl,
-                  style: ts.s16,
-                ),
-                const Spacer(),
-                Icon(Icons.chevron_right,
-                    size: 20, color: colors.outline),
-                const SizedBox(width: 12),
-              ]),
-            ),
           );
         }
-        return buildItem(categories[index - 1].tl, index - 1);
+        if (index == 1) {
+          return sourceEntry(
+            icon: Icons.photo_library_outlined,
+            title: "漫画源管理".tl,
+            onTap: () => context.to(() => const ComicSourcePage()),
+          );
+        }
+        return buildItem(categories[index - 2].tl, index - 2);
       },
     );
   }

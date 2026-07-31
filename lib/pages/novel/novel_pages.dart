@@ -624,6 +624,66 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
   List<NovelBook> _results = [];
   String? _error;
 
+  /// 搜索模式：true=精确（书名/作者完全匹配优先），false=聚合（全部结果）
+  bool _exactMode = false;
+
+  /// 排序：0=综合（默认） 1=字数多→少 2=字数少→多 3=按书名
+  int _sortMode = 0;
+
+  /// 标签筛选（来自结果的 kind 字段）
+  String? _tagFilter;
+
+  /// 书源筛选（null=全部书源）
+  String? _sourceFilter;
+
+  List<NovelBook> get _visible {
+    var list = _results;
+    if (_exactMode) {
+      final key = _controller.text.trim().toLowerCase();
+      if (key.isNotEmpty) {
+        final exact = list
+            .where((b) =>
+                b.name.toLowerCase() == key || b.author.toLowerCase() == key)
+            .toList();
+        final partial = list
+            .where((b) =>
+                b.name.toLowerCase() != key &&
+                b.author.toLowerCase() != key &&
+                (b.name.toLowerCase().contains(key) ||
+                    b.author.toLowerCase().contains(key)))
+            .toList();
+        list = [...exact, ...partial];
+      }
+    }
+    if (_tagFilter != null && _tagFilter!.isNotEmpty) {
+      list = list.where((b) => b.kind.contains(_tagFilter!)).toList();
+    }
+    if (_sourceFilter != null) {
+      list = list.where((b) => b.sourceName == _sourceFilter).toList();
+    }
+    switch (_sortMode) {
+      case 1:
+        list = [...list]..sort((a, b) => b.wordCountValue - a.wordCountValue);
+      case 2:
+        list = [...list]..sort((a, b) => a.wordCountValue - b.wordCountValue);
+      case 3:
+        list = [...list]..sort((a, b) => a.name.compareTo(b.name));
+    }
+    return list;
+  }
+
+  /// 结果里出现过的标签（去重，取前 12 个）
+  List<String> get _tags {
+    final seen = <String>{};
+    for (final b in _results) {
+      for (var t in b.kind.split(RegExp(r'[,，、\s]+'))) {
+        t = t.trim();
+        if (t.isNotEmpty && t.length <= 8) seen.add(t);
+      }
+    }
+    return seen.take(12).toList();
+  }
+
   Future<void> _search() async {
     final key = _controller.text.trim();
     if (key.isEmpty) return;
@@ -639,8 +699,10 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
       _searching = true;
       _error = null;
       _results = [];
+      _tagFilter = null;
+      _sourceFilter = null;
     });
-    // 并发搜索全部启用书源，逐个追加结果
+    // 并发搜索全部启用书源，逐个追加结果（聚合搜索）
     await Future.wait(sources.map((s) async {
       try {
         final res = await LegadoEngine.search(s, key);
@@ -675,6 +737,80 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
               onSubmitted: (_) => _search(),
             ),
           ),
+          // 模式切换 + 排序
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(value: false, label: Text("聚合".tl)),
+                    ButtonSegment(value: true, label: Text("精确".tl)),
+                  ],
+                  selected: {_exactMode},
+                  onSelectionChanged: (s) =>
+                      setState(() => _exactMode = s.first),
+                  style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact),
+                ),
+                const Spacer(),
+                PopupMenuButton<int>(
+                  initialValue: _sortMode,
+                  onSelected: (v) => setState(() => _sortMode = v),
+                  itemBuilder: (_) => [
+                    PopupMenuItem(value: 0, child: Text("综合排序".tl)),
+                    PopupMenuItem(value: 1, child: Text("字数从多到少".tl)),
+                    PopupMenuItem(value: 2, child: Text("字数从少到多".tl)),
+                    PopupMenuItem(value: 3, child: Text("按书名".tl)),
+                  ],
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.sort, size: 18, color: context.colorScheme.primary),
+                      Text("排序".tl,
+                          style: TextStyle(color: context.colorScheme.primary)),
+                    ]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 标签 + 书源筛选
+          if (_results.isNotEmpty)
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  for (final t in _tags)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: FilterChip(
+                        label: Text(t, style: const TextStyle(fontSize: 12)),
+                        selected: _tagFilter == t,
+                        onSelected: (v) =>
+                            setState(() => _tagFilter = v ? t : null),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  for (final s in _results.map((b) => b.sourceName).toSet().take(6))
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: FilterChip(
+                        avatar: const Icon(Icons.dns_outlined, size: 14),
+                        label: Text(s,
+                            style: const TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis),
+                        selected: _sourceFilter == s,
+                        onSelected: (v) =>
+                            setState(() => _sourceFilter = v ? s : null),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                ],
+              ),
+            ),
           if (_searching) const LinearProgressIndicator(),
           Expanded(
             child: _error == 'no-sources'
@@ -693,30 +829,46 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                               TextStyle(color: context.colorScheme.outline),
                         ),
                       )
-                    : ListView.builder(
-                        itemCount: _results.length,
-                        itemBuilder: (context, i) {
-                          final b = _results[i];
-                          return ListTile(
-                            leading: Icon(b.mediaType == 'comic'
-                                ? Icons.image_outlined
-                                : Icons.menu_book_outlined),
-                            title: Text(b.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
-                            subtitle: Text(
-                              [b.author, b.sourceName, b.lastChapter]
-                                  .where((e) => e.isNotEmpty)
-                                  .join(' · '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            onTap: () =>
-                                context.to(() => NovelBookPage(book: b)),
+                    : Builder(builder: (context) {
+                        final list = _visible;
+                        if (list.isEmpty) {
+                          return Center(
+                            child: Text("没有符合筛选条件的结果".tl,
+                                style: TextStyle(
+                                    color: context.colorScheme.outline)),
                           );
-                        },
-                      ),
+                        }
+                        return ListView.builder(
+                          itemCount: list.length,
+                          itemBuilder: (context, i) {
+                            final b = list[i];
+                            return ListTile(
+                              leading: Icon(b.mediaType == 'comic'
+                                  ? Icons.image_outlined
+                                  : Icons.menu_book_outlined),
+                              title: Text(b.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis),
+                              subtitle: Text(
+                                [
+                                  b.author,
+                                  b.sourceName,
+                                  b.wordCount,
+                                  b.kind,
+                                  b.lastChapter
+                                ]
+                                    .where((e) => e.isNotEmpty)
+                                    .join(' · '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              onTap: () =>
+                                  context.to(() => NovelBookPage(book: b)),
+                            );
+                          },
+                        );
+                      }),
           ),
         ],
       ),
@@ -756,6 +908,16 @@ class _NovelBookPageState extends State<NovelBookPage> {
     return null;
   }
 
+  Widget _coverPlaceholder() {
+    return Container(
+      width: 72,
+      height: 96,
+      color: context.colorScheme.surfaceContainerHigh,
+      child: Icon(Icons.menu_book_outlined,
+          color: context.colorScheme.outline, size: 28),
+    );
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -790,23 +952,30 @@ class _NovelBookPageState extends State<NovelBookPage> {
     try {
       try {
         final info = await LegadoEngine.getBookInfo(_source!, _book);
-        _book = NovelBook(
-          name: info.name,
-          author: info.author.isNotEmpty ? info.author : _book.author,
-          intro: info.intro.isNotEmpty ? info.intro : _book.intro,
-          cover: info.cover.isNotEmpty ? info.cover : _book.cover,
-          lastChapter: info.lastChapter,
-          url: info.url,
-          tocUrl: info.tocUrl,
-          sourceName: info.sourceName,
-          mediaType: info.mediaType,
+        _book = _book.copyWith(
+          name: info.name.isNotEmpty ? info.name : null,
+          author: info.author.isNotEmpty ? info.author : null,
+          intro: info.intro.isNotEmpty ? info.intro : null,
+          cover: info.cover.isNotEmpty ? info.cover : null,
+          lastChapter: info.lastChapter.isNotEmpty ? info.lastChapter : null,
+          tocUrl: info.tocUrl.isNotEmpty ? info.tocUrl : null,
+          wordCount: info.wordCount.isNotEmpty ? info.wordCount : null,
+          kind: info.kind.isNotEmpty ? info.kind : null,
         );
       } catch (_) {
-        // 详情失败不阻塞目录
+        // 详情失败不阻塞目录（保留搜索结果里的书名/作者/简介）
       }
+      if (!mounted) return;
       _toc = await LegadoEngine.getToc(_source!, _book);
-      setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        if (_toc.isEmpty) {
+          _error = '目录加载为空，可能是书源规则失效或站点拒绝访问，请重试或更换书源';
+        }
+      });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.toString();
@@ -838,6 +1007,61 @@ class _NovelBookPageState extends State<NovelBookPage> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 书籍信息头（始终显示，避免空白页）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: _book.cover.isNotEmpty
+                      ? Image.network(
+                          _book.cover,
+                          width: 72,
+                          height: 96,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _coverPlaceholder(),
+                        )
+                      : _coverPlaceholder(),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_book.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      if (_book.author.isNotEmpty)
+                        Text(_book.author,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: context.colorScheme.outline)),
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          _book.wordCount,
+                          _book.kind,
+                          _book.lastChapter,
+                        ].where((e) => e.isNotEmpty).join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: context.colorScheme.outline),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           if (_book.intro.isNotEmpty)
             Padding(
               padding: const EdgeInsets.all(12),

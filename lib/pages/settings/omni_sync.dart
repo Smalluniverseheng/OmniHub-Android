@@ -47,6 +47,167 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
     }
   }
 
+  /// 登录：未验证邮箱时自动弹验证码框
+  Future<void> _signIn() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    setState(() {
+      _busy = true;
+      _message = '';
+    });
+    try {
+      await OmniSync.instance.signIn(email, password);
+      setState(() => _message = '登录成功');
+    } catch (e) {
+      var msg = e is Exception ? e.toString() : '$e';
+      msg = msg.replaceFirst(RegExp(r'^Exception:\s*'), '');
+      if (msg == 'NEED_VERIFICATION') {
+        setState(() {
+          _busy = false;
+          _message = '邮箱尚未验证，验证码已发送至 $email';
+        });
+        if (mounted) _showVerifyDialog(email, password);
+        return;
+      }
+      if (msg.trim().isEmpty) msg = OmniSync.friendlyAuthError(e);
+      setState(() => _message = '失败：$msg');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 注册：返回 verify 时弹出验证码输入框
+  Future<void> _signUp() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    setState(() {
+      _busy = true;
+      _message = '';
+    });
+    try {
+      final result = await OmniSync.instance.signUp(email, password);
+      if (result == 'verify') {
+        setState(() {
+          _busy = false;
+          _message = '验证码已发送至 $email，请查收邮件';
+        });
+        if (mounted) _showVerifyDialog(email, password);
+      } else {
+        setState(() => _message = '注册成功');
+      }
+    } catch (e) {
+      var msg = e is Exception ? e.toString() : '$e';
+      msg = msg.replaceFirst(RegExp(r'^Exception:\s*'), '');
+      if (msg.trim().isEmpty) msg = OmniSync.friendlyAuthError(e);
+      setState(() => _message = '失败：$msg');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 验证码输入对话框
+  void _showVerifyDialog(String email, String password) {
+    final codeController = TextEditingController();
+    String? error;
+    bool verifying = false;
+    bool resending = false;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: Text("邮箱验证".tl),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("验证码已发送至".tl + ' $email',
+                  style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: codeController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                decoration: InputDecoration(
+                  labelText: "6 位验证码".tl,
+                  border: const OutlineInputBorder(),
+                  errorText: error,
+                ),
+              ),
+              TextButton(
+                onPressed: (resending || verifying)
+                    ? null
+                    : () async {
+                        setDlg(() => resending = true);
+                        try {
+                          await OmniSync.instance.resendVerificationCode(email);
+                          setDlg(() {
+                            resending = false;
+                            error = null;
+                          });
+                          if (mounted) {
+                            setState(() => _message = '验证码已重新发送');
+                          }
+                        } catch (e) {
+                          setDlg(() {
+                            resending = false;
+                            error = e.toString().replaceFirst(
+                                RegExp(r'^Exception:\s*'), '');
+                          });
+                        }
+                      },
+                child: resending
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Text("重新发送".tl),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: verifying ? null : () => Navigator.pop(ctx),
+              child: Text("取消".tl),
+            ),
+            FilledButton(
+              onPressed: verifying
+                  ? null
+                  : () async {
+                      final code = codeController.text.trim();
+                      if (code.length != 6) {
+                        setDlg(() => error = '请输入 6 位验证码');
+                        return;
+                      }
+                      setDlg(() {
+                        verifying = true;
+                        error = null;
+                      });
+                      try {
+                        await OmniSync.instance
+                            .verifyEmailAndSignIn(email, code, password);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) setState(() => _message = '注册成功，已登录');
+                      } catch (e) {
+                        setDlg(() {
+                          verifying = false;
+                          error = e.toString().replaceFirst(
+                              RegExp(r'^Exception:\s*'), '');
+                        });
+                      }
+                    },
+              child: verifying
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text("验证并登录".tl),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _syncBookshelf() async {
     setState(() {
       _busy = true;
@@ -102,26 +263,12 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
             child: Row(
               children: [
                 FilledButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _run(
-                            () => OmniSync.instance.signIn(
-                                _emailController.text.trim(),
-                                _passwordController.text),
-                            '登录成功',
-                          ),
+                  onPressed: _busy ? null : _signIn,
                   child: Text("登录".tl),
                 ),
                 const SizedBox(width: 12),
                 OutlinedButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _run(
-                            () => OmniSync.instance.signUp(
-                                _emailController.text.trim(),
-                                _passwordController.text),
-                            '注册成功',
-                          ),
+                  onPressed: _busy ? null : _signUp,
                   child: Text("注册".tl),
                 ),
               ],

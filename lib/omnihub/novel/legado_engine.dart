@@ -899,6 +899,9 @@ var java = {
           url: absUrl(bookUrl, req.url),
           sourceName: src.bookSourceName,
           mediaType: src.mediaType,
+          wordCount: decodeEntities(
+              evalRule(rs['wordCount'], ictx, false).toString()),
+          kind: decodeEntities(evalRule(rs['kind'], ictx, false).toString()),
         ));
       } catch (_) {}
     }
@@ -925,6 +928,8 @@ var java = {
       tocUrl: toc,
       sourceName: book.sourceName,
       mediaType: book.mediaType,
+      wordCount: v(ri['wordCount']?.toString()),
+      kind: v(ri['kind']?.toString()),
     );
   }
 
