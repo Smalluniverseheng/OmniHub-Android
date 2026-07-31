@@ -85,6 +85,31 @@ class _AiSettingsState extends State<AiSettings> {
             label: Text("Open AI Chat".tl),
           ),
         ).toSliver(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () =>
+                      context.to(() => const AiModelsPage()).then((_) {
+                    if (mounted) setState(() {});
+                  }),
+                  icon: const Icon(Icons.list_alt, size: 18),
+                  label: Text("Model Catalog".tl),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => context.to(() => const AiLeaderboardPage()),
+                  icon: const Icon(Icons.leaderboard_outlined, size: 18),
+                  label: Text("Leaderboard".tl),
+                ),
+              ),
+            ],
+          ),
+        ).toSliver(),
         _buildGroup("Domestic Providers".tl, AiProviders.domestic),
         _buildGroup("International Providers".tl, AiProviders.foreign),
         _buildCustom(store),
@@ -172,27 +197,18 @@ class _AiSettingsState extends State<AiSettings> {
                   Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: AiStore.instance.selectedProvider == p.keySlug &&
-                                      p.models.contains(
-                                          AiStore.instance.selectedModel)
-                                  ? AiStore.instance.selectedModel
-                                  : null,
-                          decoration: InputDecoration(
-                            labelText: "Model".tl,
-                            border: const OutlineInputBorder(),
-                            isDense: true,
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              context.to(() => const AiModelsPage()).then((_) {
+                            if (mounted) setState(() {});
+                          }),
+                          child: Text(
+                            AiStore.instance.selectedProvider == p.keySlug
+                                ? AiStore.instance.effectiveModel
+                                : "Select from catalog".tl,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          items: [
-                            for (final m in p.models)
-                              DropdownMenuItem(value: m, child: Text(m)),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              AiStore.instance.select(p.keySlug, v);
-                              setState(() {});
-                            }
-                          },
                         ),
                       ),
                       const SizedBox(width: 8),

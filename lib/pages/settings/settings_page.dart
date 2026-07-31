@@ -20,6 +20,7 @@ import 'package:venera/omnihub/ai/ai_store.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
 import 'package:venera/omnihub/sync/bookshelf_sync.dart';
 import 'package:venera/pages/ai_chat_page.dart';
+import 'package:venera/pages/ai_models_page.dart';
 import 'package:venera/utils/data.dart';
 import 'package:venera/utils/data_sync.dart';
 import 'package:venera/utils/io.dart';

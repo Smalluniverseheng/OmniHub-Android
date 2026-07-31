@@ -1,86 +1,328 @@
+/// OmniHub 主页 v1.9 —— 番茄小说书架式
+///
+/// 顶部 Tab（书架/历史/收藏/圈子，可左右滑动）+ 搜索与三点菜单 +
+/// 今日听读打卡条 + 筛选 chips + 书架宫格/列表（长按多选编辑）。
+library home_page;
+
 import 'package:flutter/material.dart';
-import 'package:sliver_tools/sliver_tools.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
-import 'package:venera/foundation/comic_source/comic_source.dart';
-import 'package:venera/foundation/consts.dart';
+import 'package:venera/foundation/appdata.dart';
+import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
-import 'package:venera/foundation/local.dart';
-import 'package:venera/foundation/log.dart';
-import 'package:venera/pages/ai_chat_page.dart';
+import 'package:venera/omnihub/shelf/recycle_bin.dart';
+import 'package:venera/omnihub/stats/reading_stats.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
-import 'package:venera/pages/comic_source_page.dart';
-import 'package:venera/pages/downloading_page.dart';
+import 'package:venera/pages/favorites/favorites_page.dart';
 import 'package:venera/pages/follow_updates_page.dart';
-import 'package:venera/pages/history_page.dart';
-import 'package:venera/pages/image_favorites_page/image_favorites_page.dart';
+import 'package:venera/pages/novel/novel_pages.dart';
 import 'package:venera/pages/search_page.dart';
-import 'package:venera/utils/data_sync.dart';
+import 'package:venera/pages/shelf/shelf_subpages.dart';
 import 'package:venera/utils/import_comic.dart';
-import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 
-import 'local_comics_page.dart';
-
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    var widget = SmoothCustomScrollView(
-      slivers: [
-        SliverPadding(padding: EdgeInsets.only(top: context.padding.top)),
-        const _SearchBar(),
-        const _SyncDataWidget(),
-        const _History(),
-        const _Local(),
-        const FollowUpdatesWidget(),
-        const _ComicSourceWidget(),
-        const ImageFavorites(),
-        SliverPadding(padding: EdgeInsets.only(top: context.padding.bottom)),
-      ],
-    );
-    return context.width > changePoint ? widget.paddingHorizontal(8) : widget;
-  }
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _SearchBar extends StatelessWidget {
-  const _SearchBar();
+class _HomePageState extends State<HomePage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab;
+  int _tabIndex = 0;
+
+  /// 书架显示模式：grid / list
+  String get _displayMode =>
+      appdata.settings['shelfDisplayMode']?.toString() ?? 'grid';
+  set _displayMode(String v) {
+    appdata.settings['shelfDisplayMode'] = v;
+    appdata.saveData();
+  }
+
+  /// 顶部筛选 chips
+  String _chip = 'all';
+
+  /// 筛选页返回的复合筛选条件
+  ShelfFilter _filter = const ShelfFilter();
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 5, vsync: this);
+    _tab.addListener(() {
+      if (_tab.index != _tabIndex) {
+        setState(() => _tabIndex = _tab.index);
+      }
+    });
+    ReadingStats.instance.load();
+    ShelfRecycleBin.instance.load();
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Container(
-        height: App.isMobile ? 52 : 46,
-        width: double.infinity,
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Material(
-          color: context.colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(32),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(32),
-            onTap: () {
-              context.to(() => const SearchPage());
-            },
-            child: Row(
-              children: [
-                const SizedBox(width: 16),
-                const Icon(Icons.search),
-                const SizedBox(width: 8),
-                Text('Search'.tl, style: ts.s16),
-                const Spacer(),
-                IconButton(
-                  tooltip: "AI Chat".tl,
-                  icon: const Icon(Icons.smart_toy_outlined),
-                  onPressed: () {
-                    context.to(() => const AiChatListPage());
-                  },
-                ),
-                const SizedBox(width: 8),
+    return Column(
+      children: [
+        SizedBox(height: context.padding.top),
+        _buildHeader(),
+        if (_tabIndex == 0) ...[
+          const _TodayReadBar(),
+          _buildChips(),
+        ],
+        Expanded(
+          child: TabBarView(
+            controller: _tab,
+            children: [
+              _ShelfTab(
+                displayMode: _displayMode,
+                chip: _chip,
+                filter: _filter,
+              ),
+              const _HistoryTab(),
+              const FavoritesPage(),
+              const NovelTab(),
+              _buildCommunityPlaceholder(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    return SizedBox(
+      height: 52,
+      child: Row(
+        children: [
+          Expanded(
+            child: TabBar(
+              controller: _tab,
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              labelStyle: const TextStyle(
+                  fontSize: 17, fontWeight: FontWeight.bold),
+              unselectedLabelStyle: const TextStyle(fontSize: 15),
+              tabs: [
+                Tab(text: "书架".tl),
+                Tab(text: "History".tl),
+                Tab(text: "Favorites".tl),
+                Tab(text: "小说".tl),
+                Tab(text: "圈子".tl),
               ],
             ),
+          ),
+          IconButton(
+            tooltip: "Search".tl,
+            icon: const Icon(Icons.search),
+            onPressed: () => context.to(() => const SearchPage()),
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: _onMenu,
+            itemBuilder: (context) => [
+              _menuItem('updates', Icons.notifications_outlined, "连载更新提醒"),
+              _menuItem(
+                  'toggle',
+                  _displayMode == 'grid'
+                      ? Icons.view_list_outlined
+                      : Icons.grid_view_outlined,
+                  _displayMode == 'grid' ? "切换为列表" : "切换为宫格"),
+              _menuItem('cloud', Icons.cloud_outlined, "云同步管理"),
+              _menuItem('import', Icons.download_outlined, "导入图书"),
+              _menuItem('display', Icons.tune, "书架展示设置"),
+              _menuItem('recycle', Icons.delete_outline, "最近删除"),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(String value, IconData icon, String text) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 12),
+          Text(text.tl),
+        ],
+      ),
+    );
+  }
+
+  void _onMenu(String v) async {
+    switch (v) {
+      case 'updates':
+        context.to(() => const FollowUpdatesPage());
+        break;
+      case 'toggle':
+        setState(() =>
+            _displayMode = _displayMode == 'grid' ? 'list' : 'grid');
+        break;
+      case 'cloud':
+        context.to(() => const CloudSyncManagePage());
+        break;
+      case 'import':
+        showDialog(
+          barrierDismissible: false,
+          context: App.rootContext,
+          builder: (context) => const _ImportComicsWidget(),
+        );
+        break;
+      case 'display':
+        context.to(() => const ShelfDisplaySettingsPage()).then((_) {
+          if (mounted) setState(() {});
+        });
+        break;
+      case 'recycle':
+        context.to(() => const RecentlyDeletedPage());
+        break;
+    }
+  }
+
+  Widget _buildChips() {
+    final chips = <(String, String)>[
+      ('all', "全部"),
+      ('reading', "阅读"),
+      ('audio', "听书"),
+      ('short', "短剧"),
+      ('comicdrama', "漫剧"),
+    ];
+    final showShort = appdata.settings['shelfShowShort'] != false;
+    final showDrama = appdata.settings['shelfShowComicDrama'] != false;
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          for (final c in chips)
+            if ((c.$1 != 'short' || showShort) &&
+                (c.$1 != 'comicdrama' || showDrama))
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(c.$2.tl),
+                  selected: _chip == c.$1,
+                  onSelected: (_) => setState(() => _chip = c.$1),
+                ),
+              ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ActionChip(
+              avatar: Icon(Icons.filter_list,
+                  size: 16,
+                  color: _filter.isActive
+                      ? context.colorScheme.primary
+                      : null),
+              label: Text("筛选".tl),
+              onPressed: () async {
+                final r = await context.to<ShelfFilter>(
+                    () => ShelfFilterPage(initial: _filter));
+                if (r != null) setState(() => _filter = r);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommunityPlaceholder() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.groups_outlined,
+              size: 64, color: context.colorScheme.outline),
+          const SizedBox(height: 12),
+          Text("圈子功能筹备中".tl,
+              style: TextStyle(color: context.colorScheme.outline)),
+        ],
+      ),
+    );
+  }
+}
+
+/// 今日听读打卡条
+class _TodayReadBar extends StatefulWidget {
+  const _TodayReadBar();
+
+  @override
+  State<_TodayReadBar> createState() => _TodayReadBarState();
+}
+
+class _TodayReadBarState extends State<_TodayReadBar> {
+  void _onChange() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    ReadingStats.instance.addListener(_onChange);
+  }
+
+  @override
+  void dispose() {
+    ReadingStats.instance.removeListener(_onChange);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final today = ReadingStats.instance.today();
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            context.colorScheme.primaryContainer,
+            context.colorScheme.secondaryContainer,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => context.to(() => const ReadingStatsPage()),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Icon(Icons.headphones, color: context.colorScheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("今日听读".tl,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      today.seconds > 0
+                          ? "已读 @t · 打卡 @c 次".tlParams({
+                              't': ReadingStats.fmt(today.seconds),
+                              'c': today.sessions,
+                            })
+                          : "今天还没有阅读记录".tl,
+                      style: TextStyle(
+                          fontSize: 12, color: context.colorScheme.outline),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: context.colorScheme.outline),
+            ],
           ),
         ),
       ),
@@ -88,403 +330,534 @@ class _SearchBar extends StatelessWidget {
   }
 }
 
-class _SyncDataWidget extends StatefulWidget {
-  const _SyncDataWidget();
+/// 书架 Tab：宫格/列表 + 长按多选编辑
+class _ShelfTab extends StatefulWidget {
+  final String displayMode;
+  final String chip;
+  final ShelfFilter filter;
+
+  const _ShelfTab({
+    required this.displayMode,
+    required this.chip,
+    required this.filter,
+  });
 
   @override
-  State<_SyncDataWidget> createState() => _SyncDataWidgetState();
+  State<_ShelfTab> createState() => _ShelfTabState();
 }
 
-class _SyncDataWidgetState extends State<_SyncDataWidget>
-    with WidgetsBindingObserver {
-  @override
-  void initState() {
-    super.initState();
-    DataSync().addListener(update);
-    WidgetsBinding.instance.addObserver(this);
-    lastCheck = DateTime.now();
-  }
-
-  void update() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
+class _ShelfTabState extends State<_ShelfTab>
+    with AutomaticKeepAliveClientMixin {
+  List<FavoriteItemWithFolderInfo> _all = [];
+  final Set<FavoriteItem> _selected = {};
+  bool _selecting = false;
 
   @override
-  void dispose() {
-    super.dispose();
-    DataSync().removeListener(update);
-    WidgetsBinding.instance.removeObserver(this);
-  }
+  bool get wantKeepAlive => true;
 
-  late DateTime lastCheck;
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      if (DateTime.now().difference(lastCheck) > const Duration(minutes: 10)) {
-        lastCheck = DateTime.now();
-        DataSync().downloadData();
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget child;
-    if (!DataSync().isEnabled) {
-      child = const SliverPadding(padding: EdgeInsets.zero);
-    } else if (DataSync().isUploading || DataSync().isDownloading) {
-      child = SliverToBoxAdapter(
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: ListTile(
-            leading: const Icon(Icons.sync),
-            title: Text('Syncing Data'.tl),
-            trailing: const CircularProgressIndicator(strokeWidth: 2)
-                .fixWidth(18)
-                .fixHeight(18),
-          ),
-        ),
-      );
-    } else {
-      child = SliverToBoxAdapter(
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: ListTile(
-            leading: const Icon(Icons.sync),
-            title: Text('Sync Data'.tl),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (DataSync().lastError != null)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: () {
-                      showDialogMessage(
-                        App.rootContext,
-                        "Error".tl,
-                        DataSync().lastError!,
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: context.colorScheme.errorContainer,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            color: Colors.red,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 4),
-                          Text('Error'.tl, style: ts.s12),
-                        ],
-                      ),
-                    ),
-                  ).paddingRight(4),
-                IconButton(
-                  icon: const Icon(Icons.cloud_upload_outlined),
-                  onPressed: () async {
-                    DataSync().uploadData();
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.cloud_download_outlined),
-                  onPressed: () async {
-                    DataSync().downloadData();
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-    return SliverAnimatedPaintExtent(
-      duration: const Duration(milliseconds: 200),
-      child: child,
-    );
-  }
-}
-
-class _History extends StatefulWidget {
-  const _History();
-
-  @override
-  State<_History> createState() => _HistoryState();
-}
-
-class _HistoryState extends State<_History> {
-  late List<History> history;
-  late int count;
-
-  void onHistoryChange() {
+  void _reload() {
     if (mounted) {
       setState(() {
-        history = HistoryManager().getRecent();
-        count = HistoryManager().count();
+        _all = LocalFavoritesManager().allComics();
+        _selected.removeWhere((e) => !_all.contains(e));
       });
     }
   }
 
   @override
   void initState() {
-    history = HistoryManager().getRecent();
-    count = HistoryManager().count();
-    HistoryManager().addListener(onHistoryChange);
     super.initState();
+    _all = LocalFavoritesManager().allComics();
+    LocalFavoritesManager().addListener(_reload);
+    ShelfRecycleBin.instance.addListener(_reload);
   }
 
   @override
   void dispose() {
-    HistoryManager().removeListener(onHistoryChange);
+    LocalFavoritesManager().removeListener(_reload);
+    ShelfRecycleBin.instance.removeListener(_reload);
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-            width: 0.6,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            context.to(() => const HistoryPage());
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 56,
-                child: Row(
-                  children: [
-                    Center(
-                      child: Text('History'.tl, style: ts.s18),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(count.toString(), style: ts.s12),
-                    ),
-                    const Spacer(),
-                    const Icon(Icons.arrow_right),
-                  ],
-                ),
-              ).paddingHorizontal(16),
-              if (history.isNotEmpty)
-                SizedBox(
-                  height: 136,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: history.length,
-                    itemBuilder: (context, index) {
-                      final heroID = history[index].id.hashCode;
-                      return SimpleComicTile(
-                        comic: history[index],
-                        heroID: heroID,
-                        onTap: () {
-                          context.to(
-                            () => ComicPage(
-                              id: history[index].id,
-                              sourceKey: history[index].type.sourceKey,
-                              cover: history[index].cover,
-                              title: history[index].title,
-                              heroID: heroID,
-                            ),
-                          );
-                        },
-                      ).paddingHorizontal(8).paddingVertical(2);
-                    },
-                  ),
-                ).paddingHorizontal(8).paddingBottom(16),
-            ],
-          ),
-        ),
-      ),
-    );
+  List<FavoriteItemWithFolderInfo> get _items {
+    Iterable<FavoriteItemWithFolderInfo> res = _all;
+    // 顶部 chips
+    switch (widget.chip) {
+      case 'reading':
+        res = res.where(
+            (e) => HistoryManager().find(e.id, e.type) != null);
+        break;
+      case 'audio':
+      case 'short':
+      case 'comicdrama':
+        return const []; // 听书/短剧/漫剧：后续版本
+    }
+    // 复合筛选
+    final f = widget.filter;
+    if (f.folder != null) res = res.where((e) => e.folder == f.folder);
+    if (f.downloadedOnly) {
+      res = res.where((e) => e.type == ComicType.local);
+    }
+    if (f.readStatus != 'all') {
+      res = res.where((e) {
+        final h = HistoryManager().find(e.id, e.type);
+        switch (f.readStatus) {
+          case 'unread':
+            return h == null;
+          case 'reading':
+            return h != null &&
+                !(h.maxPage != null && h.maxPage! > 0 && h.page >= h.maxPage!);
+          case 'finished':
+            return h != null &&
+                h.maxPage != null &&
+                h.maxPage! > 0 &&
+                h.page >= h.maxPage!;
+          default:
+            return true;
+        }
+      });
+    }
+    if (f.tag != null && f.tag!.isNotEmpty) {
+      final t = f.tag!.toLowerCase();
+      res = res.where(
+          (e) => e.tags.any((tag) => tag.toLowerCase().contains(t)));
+    }
+    return res.toList();
   }
-}
 
-class _Local extends StatefulWidget {
-  const _Local();
+  String _progressText(FavoriteItem c) {
+    final h = HistoryManager().find(c.id, c.type);
+    if (h == null) return "未读".tl;
+    if (h.maxPage != null && h.maxPage! > 0) {
+      final p = (h.page / h.maxPage! * 100).clamp(0, 100).round();
+      return "读至 @p%".tlParams({'p': p});
+    }
+    return "读至第 @e 章".tlParams({'e': h.ep});
+  }
 
-  @override
-  State<_Local> createState() => _LocalState();
-}
+  void _openComic(FavoriteItem c) {
+    context.to(() => ComicPage(
+          id: c.id,
+          sourceKey: c.type == ComicType.local
+              ? 'local'
+              : c.type.comicSource?.key ?? 'Unknown',
+          cover: c.cover,
+          title: c.title,
+        ));
+  }
 
-class _LocalState extends State<_Local> {
-  late List<LocalComic> local;
-  late int count;
+  void _onTapItem(FavoriteItemWithFolderInfo c) {
+    if (_selecting) {
+      setState(() {
+        _selected.contains(c) ? _selected.remove(c) : _selected.add(c);
+        if (_selected.isEmpty) _selecting = false;
+      });
+    } else {
+      _openComic(c);
+    }
+  }
 
-  void onLocalComicsChange() {
+  void _onLongPressItem(FavoriteItemWithFolderInfo c) {
     setState(() {
-      local = LocalManager().getRecent();
-      count = LocalManager().count;
+      _selecting = true;
+      _selected.add(c);
     });
   }
 
   @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final items = _items;
+    return Column(
+      children: [
+        if (_selecting) _buildSelectionBar(items),
+        Expanded(
+          child: items.isEmpty
+              ? Center(
+                  child: Text(
+                    widget.chip == 'audio' ||
+                            widget.chip == 'short' ||
+                            widget.chip == 'comicdrama'
+                        ? "该分类将在后续版本开放".tl
+                        : "书架空空如也".tl,
+                    style: TextStyle(color: context.colorScheme.outline),
+                  ),
+                )
+              : widget.displayMode == 'grid'
+                  ? _buildGrid(items)
+                  : _buildList(items),
+        ),
+        if (_selecting) _buildActionBar(),
+      ],
+    );
+  }
+
+  Widget _buildSelectionBar(List<FavoriteItemWithFolderInfo> items) {
+    return Container(
+      height: 44,
+      color: context.colorScheme.surfaceContainerHigh,
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => setState(() {
+              _selecting = false;
+              _selected.clear();
+            }),
+          ),
+          Text("已选 @c 项".tlParams({'c': _selected.length})),
+          const Spacer(),
+          TextButton(
+            onPressed: () => setState(() {
+              if (_selected.length == items.length) {
+                _selected.clear();
+              } else {
+                _selected
+                  ..clear()
+                  ..addAll(items);
+              }
+            }),
+            child: Text(
+                _selected.length == items.length ? "取消全选".tl : "全选".tl),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrid(List<FavoriteItemWithFolderInfo> items) {
+    return GridView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 130,
+        childAspectRatio: 0.56,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, i) {
+        final c = items[i];
+        final selected = _selected.contains(c);
+        return GestureDetector(
+          onTap: () => _onTapItem(c),
+          onLongPress: () => _onLongPressItem(c),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: SimpleComicTile(comic: c, heroID: c.hashCode),
+                    ),
+                    if (_selecting)
+                      Container(
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? context.colorScheme.primary
+                                  .withValues(alpha: 0.35)
+                              : Colors.black.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: selected
+                              ? Border.all(
+                                  color: context.colorScheme.primary,
+                                  width: 2)
+                              : null,
+                        ),
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              selected
+                                  ? Icons.check_circle
+                                  : Icons.circle_outlined,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                c.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13),
+              ),
+              Text(
+                _progressText(c),
+                style: TextStyle(
+                    fontSize: 11, color: context.colorScheme.outline),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildList(List<FavoriteItemWithFolderInfo> items) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: items.length,
+      itemBuilder: (context, i) {
+        final c = items[i];
+        final selected = _selected.contains(c);
+        final h = HistoryManager().find(c.id, c.type);
+        return ListTile(
+          selected: selected,
+          leading: SizedBox(
+            width: 44,
+            height: 60,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SimpleComicTile(comic: c, heroID: c.hashCode),
+            ),
+          ),
+          title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            [
+              _progressText(c),
+              if (h != null)
+                "${h.time.year}-${h.time.month.toString().padLeft(2, '0')}-${h.time.day.toString().padLeft(2, '0')} 更新",
+            ].join(' · '),
+            style: const TextStyle(fontSize: 12),
+          ),
+          trailing: _selecting
+              ? Icon(selected
+                  ? Icons.check_circle
+                  : Icons.circle_outlined)
+              : null,
+          onTap: () => _onTapItem(c),
+          onLongPress: () => _onLongPressItem(c),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionBar() {
+    final actions = <(IconData, String, VoidCallback?)>[
+      (Icons.find_in_page_outlined, "找相似书", () {
+        context.showMessage(message: "该功能将在后续版本上线".tl);
+      }),
+      (Icons.drive_file_move_outlined, "移动至分组", () => _moveSelected(true)),
+      (Icons.playlist_add, "加入书单", () => _moveSelected(false)),
+      (Icons.add_to_home_screen_outlined, "加入桌面", () {
+        context.showMessage(message: "该功能将在后续版本上线".tl);
+      }),
+      (Icons.delete_outline, "删除", _deleteSelected),
+    ];
+    return Container(
+      height: 64,
+      decoration: BoxDecoration(
+        color: context.colorScheme.surfaceContainerHigh,
+        border: Border(
+            top: BorderSide(color: context.colorScheme.outlineVariant)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          for (final a in actions)
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: a.$3,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(a.$1, size: 20),
+                    const SizedBox(height: 2),
+                    Text(a.$2.tl, style: const TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _pickFolder() async {
+    final mgr = LocalFavoritesManager();
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialog) => AlertDialog(
+            title: Text("选择分组".tl),
+            content: SizedBox(
+              width: 320,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: controller,
+                    decoration: InputDecoration(
+                      hintText: "新建分组名称".tl,
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: () {
+                          final name = controller.text.trim();
+                          if (name.isNotEmpty) {
+                            mgr.createFolder(name, true);
+                            setDialog(() {});
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final f in mgr.folderNames)
+                          ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.folder_outlined),
+                            title: Text(f),
+                            subtitle:
+                                Text("${mgr.folderComics(f)}"),
+                            onTap: () => Navigator.of(context).pop(f),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _moveSelected(bool removeFromSource) async {
+    if (_selected.isEmpty) return;
+    final folder = await _pickFolder();
+    if (folder == null) return;
+    final mgr = LocalFavoritesManager();
+    var moved = 0;
+    for (final c in _selected.toList()) {
+      final src = _all.firstWhere((e) => e == c);
+      if (src.folder == folder) continue;
+      final ok = mgr.addComic(folder, c);
+      if (ok) {
+        moved++;
+        if (removeFromSource) {
+          mgr.deleteComicWithId(src.folder, c.id, c.type);
+        }
+      }
+    }
+    context.showMessage(message: "已处理 @c 本".tlParams({'c': moved}));
+    setState(() {
+      _selecting = false;
+      _selected.clear();
+    });
+  }
+
+  Future<void> _deleteSelected() async {
+    if (_selected.isEmpty) return;
+    final count = _selected.length;
+    for (final c in _selected.toList()) {
+      final src = _all.firstWhere((e) => e == c);
+      await ShelfRecycleBin.instance.delete(src.folder, c);
+    }
+    context.showMessage(
+        message: "已删除 @c 本，可在「最近删除」中恢复".tlParams({'c': count}));
+    setState(() {
+      _selecting = false;
+      _selected.clear();
+    });
+  }
+}
+
+/// 历史 Tab
+class _HistoryTab extends StatefulWidget {
+  const _HistoryTab();
+
+  @override
+  State<_HistoryTab> createState() => _HistoryTabState();
+}
+
+class _HistoryTabState extends State<_HistoryTab>
+    with AutomaticKeepAliveClientMixin {
+  List<History> _history = [];
+
+  void _reload() {
+    if (mounted) {
+      setState(() => _history = HistoryManager().getAll());
+    }
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
-    local = LocalManager().getRecent();
-    count = LocalManager().count;
-    LocalManager().addListener(onLocalComicsChange);
     super.initState();
+    _history = HistoryManager().getAll();
+    HistoryManager().addListener(_reload);
   }
 
   @override
   void dispose() {
-    LocalManager().removeListener(onLocalComicsChange);
+    HistoryManager().removeListener(_reload);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-            width: 0.6,
+    super.build(context);
+    if (_history.isEmpty) {
+      return Center(
+        child: Text("暂无阅读历史".tl,
+            style: TextStyle(color: context.colorScheme.outline)),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: _history.length,
+      itemBuilder: (context, i) {
+        final h = _history[i];
+        return ListTile(
+          leading: SizedBox(
+            width: 44,
+            height: 60,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SimpleComicTile(comic: h, heroID: h.hashCode),
+            ),
           ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            context.to(() => const LocalComicsPage());
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 56,
-                child: Row(
-                  children: [
-                    Center(
-                      child: Text('Local'.tl, style: ts.s18),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(count.toString(), style: ts.s12),
-                    ),
-                    const Spacer(),
-                    const Icon(Icons.arrow_right),
-                  ],
-                ),
-              ).paddingHorizontal(16),
-              if (local.isNotEmpty)
-                SizedBox(
-                  height: 136,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: local.length,
-                    itemBuilder: (context, index) {
-                      final heroID = local[index].id.hashCode;
-                      return SimpleComicTile(
-                        comic: local[index],
-                        heroID: heroID,
-                        onTap: () {
-                          context.to(
-                            () => ComicPage(
-                              id: local[index].id,
-                              sourceKey: local[index].sourceKey,
-                              cover: local[index].cover,
-                              title: local[index].title,
-                              heroID: heroID,
-                            ),
-                          );
-                        },
-                      ).paddingHorizontal(8).paddingVertical(2);
-                    },
-                  ),
-                ).paddingHorizontal(8),
-              Row(
-                children: [
-                  if (LocalManager().downloadingTasks.isNotEmpty)
-                    Button.outlined(
-                      child: Row(
-                        children: [
-                          if (LocalManager().downloadingTasks.first.isPaused)
-                            const Icon(Icons.pause_circle_outline, size: 18)
-                          else
-                            const _AnimatedDownloadingIcon(),
-                          const SizedBox(width: 8),
-                          Text("@a Tasks".tlParams({
-                            'a': LocalManager().downloadingTasks.length,
-                          })),
-                        ],
-                      ),
-                      onPressed: () {
-                        showPopUpWidget(context, const DownloadingPage());
-                      },
-                    ),
-                  const Spacer(),
-                  Button.filled(
-                    onPressed: import,
-                    child: Text("Import".tl),
-                  ),
-                ],
-              ).paddingHorizontal(16).paddingVertical(8),
-            ],
+          title: Text(h.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            "第 @e 章 · 第 @p 页".tlParams({'e': h.ep, 'p': h.page}),
+            style: const TextStyle(fontSize: 12),
           ),
-        ),
-      ),
-    );
-  }
-
-  void import() {
-    showDialog(
-      barrierDismissible: false,
-      context: App.rootContext,
-      builder: (context) {
-        return const _ImportComicsWidget();
+          onTap: () => context.to(() => ComicPage(
+                id: h.id,
+                sourceKey: h.type.sourceKey,
+                cover: h.cover,
+                title: h.title,
+              )),
+        );
       },
     );
   }
 }
 
+/// 导入图书对话框
 class _ImportComicsWidget extends StatefulWidget {
   const _ImportComicsWidget();
 
@@ -506,14 +879,6 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
   String? selectedFolder;
 
   bool copyToLocalFolder = true;
-
-  bool cancelled = false;
-
-  @override
-  void dispose() {
-    loading = false;
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -598,7 +963,7 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
                   Text(info).paddingHorizontal(24),
                 ],
               ),
-          ),
+            ),
       actions: [
         Button.text(
           child: Row(
@@ -650,508 +1015,5 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
         loading = false;
       });
     }
-  }
-}
-
-class _ComicSourceWidget extends StatefulWidget {
-  const _ComicSourceWidget();
-
-  @override
-  State<_ComicSourceWidget> createState() => _ComicSourceWidgetState();
-}
-
-class _ComicSourceWidgetState extends State<_ComicSourceWidget> {
-  late List<String> comicSources;
-
-  void onComicSourceChange() {
-    setState(() {
-      comicSources = ComicSource.all().map((e) => e.name).toList();
-    });
-  }
-
-  @override
-  void initState() {
-    comicSources = ComicSource.all().map((e) => e.name).toList();
-    ComicSourceManager().addListener(onComicSourceChange);
-    super.initState();
-  }
-
-  @override
-  void dispose() {
-    ComicSourceManager().removeListener(onComicSourceChange);
-    super.dispose();
-  }
-
-  int get _availableUpdates {
-    int c = 0;
-    ComicSourceManager().availableUpdates.forEach((key, version) {
-      var source = ComicSource.find(key);
-      if (source != null) {
-        if (compareSemVer(version, source.version)) {
-          c++;
-        }
-      }
-    });
-    return c;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-            width: 0.6,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            context.to(() => const ComicSourcePage());
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 56,
-                child: Row(
-                  children: [
-                    Center(
-                      child: Text('Comic Source'.tl, style: ts.s18),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child:
-                          Text(comicSources.length.toString(), style: ts.s12),
-                    ),
-                    const Spacer(),
-                    const Icon(Icons.arrow_right),
-                  ],
-                ),
-              ).paddingHorizontal(16),
-              if (comicSources.isNotEmpty)
-                SizedBox(
-                  width: double.infinity,
-                  child: Wrap(
-                    runSpacing: 8,
-                    spacing: 8,
-                    children: comicSources.map((e) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color:
-                              Theme.of(context).colorScheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(e),
-                      );
-                    }).toList(),
-                  ).paddingHorizontal(16).paddingBottom(16),
-                ),
-              if (_availableUpdates > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: context.colorScheme.outlineVariant,
-                      width: 0.6,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.update,
-                        color: context.colorScheme.primary,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        "@c updates".tlParams({
-                          'c': _availableUpdates,
-                        }),
-                        style: ts.withColor(context.colorScheme.primary),
-                      ),
-                    ],
-                  ),
-                )
-                    .toAlign(Alignment.centerLeft)
-                    .paddingHorizontal(16)
-                    .paddingBottom(8),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AnimatedDownloadingIcon extends StatefulWidget {
-  const _AnimatedDownloadingIcon();
-
-  @override
-  State<_AnimatedDownloadingIcon> createState() =>
-      __AnimatedDownloadingIconState();
-}
-
-class __AnimatedDownloadingIconState extends State<_AnimatedDownloadingIcon>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      lowerBound: -1,
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Container(
-          width: 18,
-          height: 18,
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.primary,
-                width: 2,
-              ),
-            ),
-          ),
-          clipBehavior: Clip.hardEdge,
-          child: Transform.translate(
-            offset: Offset(0, 18 * _controller.value),
-            child: Icon(
-              Icons.arrow_downward,
-              size: 16,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class ImageFavorites extends StatefulWidget {
-  const ImageFavorites({super.key});
-
-  @override
-  State<ImageFavorites> createState() => _ImageFavoritesState();
-}
-
-class _ImageFavoritesState extends State<ImageFavorites> {
-  ImageFavoritesComputed? imageFavoritesCompute;
-
-  int displayType = 0;
-
-  void refreshImageFavorites() async {
-    try {
-      imageFavoritesCompute =
-          await ImageFavoriteManager.computeImageFavorites();
-      if (mounted) {
-        setState(() {});
-      }
-    } catch (e, stackTrace) {
-      Log.error("Unhandled Exception", e.toString(), stackTrace);
-    }
-  }
-
-  @override
-  void initState() {
-    refreshImageFavorites();
-    ImageFavoriteManager().addListener(refreshImageFavorites);
-    super.initState();
-  }
-
-  @override
-  void dispose() {
-    ImageFavoriteManager().removeListener(refreshImageFavorites);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    bool hasData =
-        imageFavoritesCompute != null && !imageFavoritesCompute!.isEmpty;
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-            width: 0.6,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            context.to(
-              () => const ImageFavoritesPage()
-            );
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 56,
-                child: Row(
-                  children: [
-                    Center(
-                      child: Text('Image Favorites'.tl, style: ts.s18),
-                    ),
-                    if (hasData)
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color:
-                              Theme.of(context).colorScheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          imageFavoritesCompute!.count.toString(),
-                          style: ts.s12,
-                        ),
-                      ),
-                    const Spacer(),
-                    const Icon(Icons.arrow_right),
-                  ],
-                ),
-              ).paddingHorizontal(16),
-              if (hasData)
-                Row(
-                  children: [
-                    const Spacer(),
-                    buildTypeButton(0, "Tags".tl),
-                    const Spacer(),
-                    buildTypeButton(1, "Authors".tl),
-                    const Spacer(),
-                    buildTypeButton(2, "Comics".tl),
-                    const Spacer(),
-                  ],
-                ),
-              if (hasData) const SizedBox(height: 8),
-              if (hasData)
-                buildChart(switch (displayType) {
-                  0 => imageFavoritesCompute!.tags,
-                  1 => imageFavoritesCompute!.authors,
-                  2 => imageFavoritesCompute!.comics,
-                  _ => [],
-                })
-                    .paddingHorizontal(16)
-                    .paddingBottom(16),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget buildTypeButton(int type, String text) {
-    const radius = 24.0;
-    return InkWell(
-      borderRadius: BorderRadius.circular(radius),
-      onTap: () async {
-        setState(() {
-          displayType = type;
-        });
-        await Future.delayed(const Duration(milliseconds: 20));
-        var scrollController = ScrollState.of(context).controller;
-        scrollController.animateTo(
-          scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.ease,
-        );
-      },
-      child: AnimatedContainer(
-        width: 96,
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        decoration: BoxDecoration(
-          color:
-              displayType == type ? context.colorScheme.primaryContainer : null,
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-            width: 0.6,
-          ),
-          borderRadius: BorderRadius.circular(radius),
-        ),
-        duration: const Duration(milliseconds: 200),
-        child: Center(
-          child: Text(
-            text,
-            style: ts.s16,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget buildChart(List<TextWithCount> data) {
-    if (data.isEmpty) {
-      return const SizedBox();
-    }
-    var maxCount = data.map((e) => e.count).reduce((a, b) => a > b ? a : b);
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: 164,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          key: ValueKey(displayType),
-          children: data.map((e) {
-            return _ChartLine(
-              text: e.text,
-              count: e.count,
-              maxCount: maxCount,
-              enableTranslation: displayType != 2,
-              onTap: (text) {
-                context.to(
-                  () => ImageFavoritesPage(initialKeyword: text),
-                );
-              },
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-}
-
-class _ChartLine extends StatefulWidget {
-  const _ChartLine({
-    required this.text,
-    required this.count,
-    required this.maxCount,
-    required this.enableTranslation,
-    this.onTap,
-  });
-
-  final String text;
-
-  final int count;
-
-  final int maxCount;
-
-  final bool enableTranslation;
-
-  final void Function(String text)? onTap;
-
-  @override
-  State<_ChartLine> createState() => __ChartLineState();
-}
-
-class __ChartLineState extends State<_ChartLine>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-      value: 0,
-    )..forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    var text = widget.text;
-    var enableTranslation =
-        App.locale.countryCode == 'CN' && widget.enableTranslation;
-    if (enableTranslation) {
-      text = text.translateTagsToCN;
-    }
-    if (widget.enableTranslation && text.contains(':')) {
-      text = text.split(':').last;
-    }
-    return Row(
-      children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(4),
-          onTap: () {
-            widget.onTap?.call(widget.text);
-          },
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          )
-              .paddingHorizontal(4)
-              .toAlign(Alignment.centerLeft)
-              .fixWidth(context.width > 600 ? 120 : 80)
-              .fixHeight(double.infinity),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: LayoutBuilder(builder: (context, constrains) {
-            var width = constrains.maxWidth * widget.count / widget.maxCount;
-            return AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                return Container(
-                  width: width * _controller.value,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(2),
-                    gradient: LinearGradient(
-                      colors: context.isDarkMode
-                          ? [
-                              Colors.blue.shade800,
-                              Colors.blue.shade500,
-                            ]
-                          : [
-                              Colors.blue.shade300,
-                              Colors.blue.shade600,
-                            ],
-                    ),
-                  ),
-                ).toAlign(Alignment.centerLeft);
-              },
-            );
-          }),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          widget.count.toString(),
-          style: ts.s12,
-        ).fixWidth(context.width > 600 ? 60 : 30),
-      ],
-    ).fixHeight(28);
   }
 }

@@ -12,6 +12,7 @@ import 'package:venera/omnihub/ai/ai_api.dart';
 import 'package:venera/omnihub/ai/ai_providers.dart';
 import 'package:venera/omnihub/ai/ai_store.dart';
 import 'package:venera/omnihub/ai/annotations.dart';
+import 'package:venera/pages/ai_models_page.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/translations.dart';
 
@@ -50,6 +51,11 @@ class _AiChatListPageState extends State<AiChatListPage> {
       appBar: AppBar(
         title: Text("AI Chat".tl),
         actions: [
+          IconButton(
+            tooltip: "Leaderboard".tl,
+            icon: const Icon(Icons.leaderboard_outlined),
+            onPressed: () => context.to(() => const AiLeaderboardPage()),
+          ),
           IconButton(
             tooltip: "AI Settings".tl,
             icon: const Icon(Icons.settings_outlined),

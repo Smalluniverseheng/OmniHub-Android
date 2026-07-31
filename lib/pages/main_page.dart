@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:venera/foundation/appdata.dart';
+import 'package:venera/pages/ai_chat_page.dart';
 import 'package:venera/pages/categories_page.dart';
 import 'package:venera/pages/search_page.dart';
 import 'package:venera/pages/settings/settings_page.dart';
@@ -8,7 +9,6 @@ import 'package:venera/utils/translations.dart';
 import '../components/components.dart';
 import '../foundation/app.dart';
 import 'explore_page.dart';
-import 'favorites/favorites_page.dart';
 import 'home_page.dart';
 
 class MainPage extends StatefulWidget {
@@ -72,9 +72,9 @@ class _MainPageState extends State<MainPage> {
           activeIcon: Icons.home,
         ),
         PaneItemEntry(
-          label: 'Favorites'.tl,
-          icon: Icons.local_activity_outlined,
-          activeIcon: Icons.local_activity,
+          label: 'AI'.tl,
+          icon: Icons.smart_toy_outlined,
+          activeIcon: Icons.smart_toy,
         ),
         PaneItemEntry(
           label: 'Explore'.tl,
@@ -85,6 +85,11 @@ class _MainPageState extends State<MainPage> {
           label: 'Categories'.tl,
           icon: Icons.category_outlined,
           activeIcon: Icons.category,
+        ),
+        PaneItemEntry(
+          label: 'Settings'.tl,
+          icon: Icons.settings_outlined,
+          activeIcon: Icons.settings,
         ),
       ],
       onPageChanged: (i) {
@@ -101,13 +106,6 @@ class _MainPageState extends State<MainPage> {
               to(() => const SearchPage(), preventDuplicate: true);
             },
           ),
-        PaneActionEntry(
-          icon: Icons.settings,
-          label: "Settings".tl,
-          onTap: () {
-            to(() => const SettingsPage(), preventDuplicate: true);
-          },
-        )
       ],
       pageBuilder: (index) {
         return _pages[index];
