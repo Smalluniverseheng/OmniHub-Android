@@ -136,7 +136,6 @@ class _AiSettingsState extends State<AiSettings> {
                       size: 18, color: context.colorScheme.primary),
                 const SizedBox(width: 4),
                 Chip(
-                  visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
                   label: Text(
                     configured ? "已配置".tl : "未配置".tl,

@@ -7,7 +7,6 @@ library ai_chat_page;
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:venera/components/components.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/omnihub/ai/ai_api.dart';
 import 'package:venera/omnihub/ai/ai_providers.dart';

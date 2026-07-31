@@ -336,7 +336,7 @@ class AiApi {
     try {
       final data = e.response?.data;
       if (data is ResponseBody) {
-        final body = await data.stream.transform(utf8.decoder).join();
+        final body = await utf8.decoder.bind(data.stream).join();
         final j = jsonDecode(body);
         final err = j['error'];
         if (err is Map && err['message'] != null) {
