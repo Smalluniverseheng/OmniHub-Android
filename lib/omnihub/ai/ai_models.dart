@@ -111,6 +111,19 @@ class AiModels {
     'Groq': 'groq',
     'Anthropic': 'anthropic',
     'Google': 'google',
+    '小米 MiMo': 'mimo',
+    '文心一言': 'ernie',
+    '腾讯混元': 'hunyuan',
+    'MiniMax': 'minimax',
+    '零一万物': 'yi',
+    '阶跃星辰': 'stepfun',
+    '百川智能': 'baichuan',
+    '讯飞星火': 'spark',
+    '昆仑万维': 'kunlun',
+    '商汤': 'sensetime',
+    'Mistral': 'mistral',
+    'Meta': 'meta',
+    'Cohere': 'cohere',
   };
 
   /// 返回 null 表示 App 未接入该厂商（目录展示用，不可直接配置）

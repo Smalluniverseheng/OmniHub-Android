@@ -21,6 +21,7 @@ import 'package:venera/pages/novel/novel_pages.dart';
 import 'package:venera/pages/search_page.dart';
 import 'package:venera/pages/shelf/import_export_pages.dart';
 import 'package:venera/pages/shelf/shelf_subpages.dart';
+import 'package:venera/pages/video/video_pages.dart';
 import 'package:venera/utils/import_comic.dart';
 import 'package:venera/utils/translations.dart';
 
@@ -131,6 +132,7 @@ class _HomePageState extends State<HomePage>
             onSelected: _onMenu,
             itemBuilder: (context) => [
               _menuItem('updates', Icons.notifications_outlined, "连载更新提醒"),
+              _menuItem('video', Icons.movie_outlined, "影视"),
               _menuItem(
                   'toggle',
                   _displayMode == 'grid'
@@ -165,6 +167,9 @@ class _HomePageState extends State<HomePage>
     switch (v) {
       case 'updates':
         context.to(() => const FollowUpdatesPage());
+        break;
+      case 'video':
+        context.to(() => const VideoHomePage());
         break;
       case 'toggle':
         setState(() =>

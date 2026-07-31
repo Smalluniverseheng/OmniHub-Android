@@ -111,6 +111,7 @@ class _AiSettingsState extends State<AiSettings> {
           ),
         ).toSliver(),
         _buildGroup("Domestic Providers".tl, AiProviders.domestic),
+        _buildGroup("聚合平台（单 Key 可用 200+ 模型）".tl, AiProviders.aggregators),
         _buildGroup("International Providers".tl, AiProviders.foreign),
         _buildCustom(store),
         const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
@@ -143,15 +144,16 @@ class _AiSettingsState extends State<AiSettings> {
       child: Column(
         children: [
           ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Color(p.color),
-              child: Text(
-                p.name.substring(0, 1).toUpperCase(),
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-              ),
+            leading: BrandIcon(
+              lobe: p.iconLobe,
+              simple: p.iconSimple,
+              color: p.color,
+              letter: p.name,
+              size: 40,
             ),
             title: Text(p.name),
-            subtitle: Text("${p.models.length} models",
+            subtitle: Text(
+                "${AiModels.forProvider(p.keySlug).isNotEmpty ? AiModels.forProvider(p.keySlug).length : p.models.length} models",
                 style: const TextStyle(fontSize: 12)),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,

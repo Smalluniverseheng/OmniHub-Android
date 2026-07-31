@@ -97,3 +97,18 @@ lib/
 - **漫画阅读器**：顶栏加入书架；底栏目录/日夜间/设置；设置面板（普通/日漫/上下模式、流畅/清晰画质、自动阅读、快捷功能、更多设置）
 - **书源全格式**：URL/文件(.json/.txt)/二维码/剪贴板导入；legado://import/{bookSource,textTocRule,replaceRule,httpTTS}?src= 协议；TXT目录规则、正文替换净化规则
 - **开屏动画**：移植网页版 #splash（靛紫渐变 logo + 纵横四海·引领无限）
+
+## v1.11.0（2026-08）
+- 注册修复：新增 Supabase RPC `omnihub_signup`（安全定义器函数，直接写 auth.users，
+  绕过 gotrue 邮箱域名校验与发信限流，创建即确认）；App signUp 优先走 RPC，回退官方通道；
+  登录/注册错误统一中文翻译（friendlyAuthError，移植自网页版 errMsg）。
+- 扫码导入新增「相册」按钮（扫描框下方），从相册图片解码二维码（mobile_scanner analyzeImage）。
+- AI 厂商扩容至 27 家：23 家目录厂商（与 aiBeta providers.js 对齐）+ 4 家聚合平台
+  （OpenRouter / SiliconFlow / Together / Fireworks，单 Key 200+ 模型）；
+  厂商图标改为真商标（BrandIcon：lobehub CDN → unpkg → simpleicons → 首字母兜底）。
+- 书源自动识别（lib/omnihub/novel/source_detect.dart，移植 source-detect.js +
+  source-url-resolver.js）：Legado / Legado RSS / CSS 选择器配置（自动转 Legado）/
+  TVBox / Venera JS / fox:// base64+gzip；URL 候选探测（yckceo 源仓库模式 + 路径截断）。
+- 影视模块（TVBox 视频解析）：lib/omnihub/video/tvbox.dart（苹果 CMS JSON API：
+  搜索/分类/详情/选集）+ lib/pages/video/video_pages.dart（搜索页、源管理、详情、
+  video_player 播放器）。书架菜单新增「影视」入口。

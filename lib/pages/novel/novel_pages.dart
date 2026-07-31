@@ -13,6 +13,8 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/omnihub/novel/book_source.dart';
 import 'package:venera/omnihub/novel/legado_engine.dart';
 import 'package:venera/omnihub/novel/local_import.dart';
+import 'package:venera/omnihub/novel/source_detect.dart';
+import 'package:venera/omnihub/video/tvbox.dart';
 import 'package:venera/omnihub/stats/reading_stats.dart';
 import 'package:venera/omnihub/tts/edge_tts.dart';
 import 'package:venera/omnihub/tts/tts_service.dart';
@@ -155,27 +157,124 @@ class NovelSourcesPage extends StatefulWidget {
         return;
       }
     }
-    try {
-      final res = await Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 12),
-        receiveTimeout: const Duration(seconds: 25),
-        headers: {'User-Agent': 'Mozilla/5.0 (Linux; Android) legado/3.0'},
-      )).get<String>(target);
-      final text = res.data ?? '';
-      if (text.isEmpty) throw 'empty';
-      if (context.mounted) {
-        // 书源类型走页面实例的提示逻辑
-        final (n, label) = await LegadoImport.importByType(type, text);
-        if (context.mounted) {
-          context.showMessage(
-              message: n > 0
-                  ? "导入 @c 个@l".tlParams({'c': n, 'l': label})
-                  : "没有可导入的内容".tl);
+    // URL 自动识别：候选地址逐个探测（原样 / .html 截断 / yckceo 模式 / 路径截断）
+    final candidates = type == 'bookSource'
+        ? SourceUrlResolver.candidates(target)
+        : <String>[target];
+    final tried = candidates.isEmpty ? <String>[target] : candidates;
+    final dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 12),
+      receiveTimeout: const Duration(seconds: 25),
+      headers: {'User-Agent': 'Mozilla/5.0 (Linux; Android) legado/3.0'},
+    ));
+    Object? lastError;
+    for (final c in tried) {
+      try {
+        final res = await dio.get<String>(c);
+        final text = res.data ?? '';
+        if (text.isEmpty) continue;
+        if (type != 'bookSource') {
+          // 指定类型（目录规则/替换规则/TTS）直接按类型导入
+          final (n, label) = await LegadoImport.importByType(type, text);
+          if (context.mounted) {
+            context.showMessage(
+                message: n > 0
+                    ? "导入 @c 个@l".tlParams({'c': n, 'l': label})
+                    : "没有可导入的内容".tl);
+          }
+          return;
         }
+        final detect = SourceDetect.detect(text);
+        if (detect.type == SourceDetectType.unknown &&
+            tried.length > 1 &&
+            c != tried.last) {
+          continue; // 尝试下一个候选地址
+        }
+        if (context.mounted) await importAutoText(text, context, detect);
+        return;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (context.mounted) {
+      context.showMessage(
+          message: "下载失败：@e".tlParams({'e': '${lastError ?? '无可用地址'}'}));
+    }
+  }
+
+  /// 粘贴内容自动识别导入（Legado / CSS 配置 / TVBox / Venera / fox 压缩串）
+  static Future<void> importAutoText(String text, BuildContext context,
+      [SourceDetectResult? detected]) async {
+    final d = detected ?? SourceDetect.detect(text);
+    try {
+      switch (d.type) {
+        case SourceDetectType.legado:
+          final (n, label) = await LegadoImport.importByType('bookSource', text);
+          if (context.mounted) {
+            context.showMessage(
+                message: (n > 0
+                        ? "导入 @c 个@l".tlParams({'c': n, 'l': label})
+                        : "没有可导入的内容".tl) +
+                    (d.message.isNotEmpty ? '（${d.message}）' : ''));
+          }
+          return;
+        case SourceDetectType.cssConfig:
+          final list = d.sources
+              .map((e) => SourceDetect.cssToLegado((e as Map).cast()))
+              .toList();
+          final n = await BookSourceManager.instance
+              .importJson(jsonEncode(list));
+          if (context.mounted) {
+            context.showMessage(
+                message: n > 0
+                    ? "导入 @c 个书源（CSS 配置已转换）".tlParams({'c': n})
+                    : "没有可导入的内容".tl);
+          }
+          return;
+        case SourceDetectType.tvbox:
+          final (ok, skip) =
+              await TvboxSourceManager.instance.importConfig(d.sources.first);
+          if (context.mounted) {
+            context.showMessage(
+                message: "导入 @ok 个视频源（到影视模块）@skip".tlParams(
+                    {'ok': ok, 'skip': skip > 0 ? '，跳过 $skip 个' : ''}));
+          }
+          return;
+        case SourceDetectType.legadoRss:
+          if (context.mounted) {
+            context.showMessage(message: "识别为 RSS 订阅源，App 暂不支持订阅功能".tl);
+          }
+          return;
+        case SourceDetectType.venera:
+        case SourceDetectType.veneraIndex:
+          if (context.mounted) {
+            context.showMessage(
+                message: "检测到 Venera 漫画图源脚本，请到「设置-漫画源」中导入".tl);
+          }
+          return;
+        case SourceDetectType.legadoJs:
+        case SourceDetectType.unknown:
+          // 兜底：按 Legado 书源再试一次（兼容 base64 包装/杂质）
+          try {
+            final (n, label) =
+                await LegadoImport.importByType('bookSource', text);
+            if (context.mounted) {
+              context.showMessage(
+                  message: n > 0
+                      ? "导入 @c 个@l".tlParams({'c': n, 'l': label})
+                      : (d.message.isNotEmpty ? d.message : "没有可导入的内容".tl));
+            }
+          } catch (_) {
+            if (context.mounted) {
+              context.showMessage(
+                  message: d.message.isNotEmpty ? d.message : "无法识别的内容".tl);
+            }
+          }
+          return;
       }
     } catch (e) {
       if (context.mounted) {
-        context.showMessage(message: "下载失败：@e".tlParams({'e': e.toString()}));
+        context.showMessage(message: "导入失败：@e".tlParams({'e': e.toString()}));
       }
     }
   }
@@ -204,6 +303,11 @@ class _NovelSourcesPageState extends State<NovelSourcesPage> {
   }
 
   Future<void> _importText(String text, {String type = 'bookSource'}) async {
+    if (type == 'bookSource') {
+      // 自动识别书源格式（Legado / CSS 配置 / TVBox / fox 压缩串…）
+      await NovelSourcesPage.importAutoText(text, context);
+      return;
+    }
     try {
       final (n, label) = await LegadoImport.importByType(type, text);
       if (mounted) {
@@ -396,6 +500,40 @@ class _QrScanPage extends StatefulWidget {
 
 class _QrScanPageState extends State<_QrScanPage> {
   bool _handled = false;
+  final MobileScannerController _controller = MobileScannerController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _emit(String raw) {
+    if (_handled) return;
+    _handled = true;
+    context.pop(raw);
+  }
+
+  /// 从相册选取二维码图片并解码
+  Future<void> _pickFromGallery() async {
+    try {
+      const typeGroup = XTypeGroup(
+        label: '图片',
+        extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+      );
+      final file = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (file == null) return;
+      final result = await _controller.analyzeImage(file.path);
+      final raw = result?.barcodes.firstOrNull?.rawValue;
+      if (raw != null && raw.isNotEmpty) {
+        _emit(raw);
+      } else if (mounted) {
+        context.showMessage(message: "未识别到二维码".tl);
+      }
+    } catch (_) {
+      if (mounted) context.showMessage(message: "相册二维码识别失败".tl);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -404,12 +542,11 @@ class _QrScanPageState extends State<_QrScanPage> {
       body: Stack(
         children: [
           MobileScanner(
+            controller: _controller,
             onDetect: (capture) {
-              if (_handled) return;
               final raw = capture.barcodes.firstOrNull?.rawValue;
               if (raw != null && raw.isNotEmpty) {
-                _handled = true;
-                context.pop(raw);
+                _emit(raw);
               }
             },
           ),
@@ -423,12 +560,45 @@ class _QrScanPageState extends State<_QrScanPage> {
               ),
             ),
           ),
+          // 相册入口：屏幕中间靠下
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 120,
+            child: Center(
+              child: Material(
+                color: Colors.black45,
+                borderRadius: BorderRadius.circular(28),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(28),
+                  onTap: _pickFromGallery,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 10),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.photo_library_outlined,
+                            color: Colors.white, size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          "相册".tl,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
           Positioned(
             left: 0,
             right: 0,
             bottom: 40,
             child: Text(
-              "对准 Legado 书源分享二维码".tl,
+              "对准二维码，或从相册选择二维码图片".tl,
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white70),
             ),

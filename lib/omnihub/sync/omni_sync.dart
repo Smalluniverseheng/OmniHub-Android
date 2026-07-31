@@ -123,35 +123,108 @@ class OmniSync {
     );
   }
 
+  /// 服务端错误 → 友好中文（移植自网页版 supabase.js errMsg）
+  static String friendlyAuthError(Object e) {
+    String m = '';
+    int? status;
+    if (e is DioException) {
+      status = e.response?.statusCode;
+      final d = e.response?.data;
+      if (d is Map) {
+        m = '${d['error_code'] ?? ''} ${d['msg'] ?? d['message'] ?? d['error_description'] ?? d['error'] ?? ''}'
+            .trim();
+      }
+      if (m.isEmpty) m = e.message ?? '';
+    } else {
+      m = e.toString();
+    }
+    if (m.contains('Invalid login credentials') ||
+        m.contains('invalid_credentials')) return '邮箱或密码错误';
+    if (RegExp(r'User already registered|already|duplicate|exists',
+            caseSensitive: false)
+        .hasMatch(m)) return '该邮箱已注册，请直接登录';
+    if (m.contains('Email not confirmed')) return '邮箱未验证，请先查收验证邮件';
+    if (m.contains('at least 6 characters')) return '密码至少 6 位';
+    if (RegExp(r'email_address_invalid|invalid email|validate email',
+            caseSensitive: false)
+        .hasMatch(m)) return '该邮箱暂不支持注册，请更换邮箱（推荐 QQ/163/Gmail）';
+    if (m.contains('over_email_send_rate_limit') ||
+        m.contains('rate limit')) return '注册邮件发送过于频繁，请稍后再试';
+    if (RegExp(r'Failed to fetch|NetworkError|Network request failed|SocketException|Connection',
+            caseSensitive: false)
+        .hasMatch(m)) return '网络异常，请稍后重试';
+    if (m.contains('row-level security') || m.contains('permission denied')) {
+      return '权限不足';
+    }
+    if ((status != null && status >= 500) || m.isEmpty || m == '{}') {
+      return '服务器异常，请稍后重试';
+    }
+    return m;
+  }
+
   /// 邮箱注册
-  Future<void> signUp(String email, String password) async {
-    final res = await _dio.post(
-      '/auth/v1/signup',
-      data: {'email': email, 'password': password},
-      options: Options(headers: {
-        'apikey': OmniSyncConfig.anonKey,
-        'Content-Type': 'application/json',
-      }),
-    );
-    final j = res.data as Map<String, dynamic>;
-    if (j['access_token'] != null) {
-      _session = _parseAuthResponse(j);
-      await _saveSession();
+  ///
+  /// 优先走服务端 RPC `omnihub_signup`（管理员通道：绕过邮箱域名校验与
+  /// 发信限流，创建即确认），成功后直接密码登录；RPC 不可用时回退官方
+  /// /auth/v1/signup。所有错误统一翻译成中文抛出。
+  Future<void> signUp(String email, String password, {String name = ''}) async {
+    // 1) RPC 管理员通道
+    try {
+      final res = await _dio.post(
+        '/rest/v1/rpc/omnihub_signup',
+        data: {'p_email': email, 'p_password': password, 'p_name': name},
+        options: Options(headers: {
+          'apikey': OmniSyncConfig.anonKey,
+          'Authorization': 'Bearer ${OmniSyncConfig.anonKey}',
+          'Content-Type': 'application/json',
+        }),
+      );
+      final j = res.data;
+      if (j is Map && j['ok'] == true) {
+        await signIn(email, password);
+        return;
+      }
+      final err = (j is Map ? j['error'] : null)?.toString() ?? '注册失败';
+      throw Exception(err);
+    } on DioException {
+      // RPC 不存在或网络异常 → 回退官方通道
+    }
+    // 2) 官方注册通道（兜底）
+    try {
+      final res = await _dio.post(
+        '/auth/v1/signup',
+        data: {'email': email, 'password': password},
+        options: Options(headers: {
+          'apikey': OmniSyncConfig.anonKey,
+          'Content-Type': 'application/json',
+        }),
+      );
+      final j = res.data as Map<String, dynamic>;
+      if (j['access_token'] != null) {
+        _session = _parseAuthResponse(j);
+        await _saveSession();
+      }
+    } on DioException catch (e) {
+      throw Exception(friendlyAuthError(e));
     }
   }
 
   /// 邮箱登录
   Future<void> signIn(String email, String password) async {
-    final res = await _dio.post(
-      '/auth/v1/token?grant_type=password',
-      data: {'email': email, 'password': password},
-      options: Options(headers: {
-        'apikey': OmniSyncConfig.anonKey,
-        'Content-Type': 'application/json',
-      }),
-    );
-    _session = _parseAuthResponse(res.data as Map<String, dynamic>);
-    await _saveSession();
+    try {
+      final res = await _dio.post(
+        '/auth/v1/token?grant_type=password',
+        data: {'email': email, 'password': password},
+        options: Options(headers: {
+          'apikey': OmniSyncConfig.anonKey,
+          'Content-Type': 'application/json',
+        }),
+      );
+      _session = _parseAuthResponse(res.data as Map<String, dynamic>);
+      await _saveSession();
+    } on DioException catch (e) {
+      throw Exception(friendlyAuthError(e));
+    }
   }
 
   Future<void> _refresh() async {

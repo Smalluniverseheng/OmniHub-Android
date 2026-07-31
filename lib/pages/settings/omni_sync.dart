@@ -38,7 +38,10 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
       await action();
       setState(() => _message = okMsg);
     } catch (e) {
-      setState(() => _message = '失败：$e');
+      var msg = e is Exception ? e.toString() : '$e';
+      msg = msg.replaceFirst(RegExp(r'^Exception:\s*'), '');
+      if (msg.trim().isEmpty) msg = OmniSync.friendlyAuthError(e);
+      setState(() => _message = '失败：$msg');
     } finally {
       setState(() => _busy = false);
     }
