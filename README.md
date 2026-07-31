@@ -1,42 +1,32 @@
-# Due to my limited time and energy, this project is no longer maintained. Feel free to fork it.
-# 由于本人精力有限, 此项目已停止维护, 欢迎fork
+# OmniHub（安卓版）
 
-# venera
-[![flutter](https://img.shields.io/badge/flutter-3.41.4-blue)](https://flutter.dev/)
-[![License](https://img.shields.io/github/license/venera-app/venera)](https://github.com/venera-app/venera/blob/master/LICENSE)
-[![stars](https://img.shields.io/github/stars/venera-app/venera?style=flat)](https://github.com/venera-app/venera/stargazers)
+> 一款把 **漫画（Venera）** + **小说（开源阅读 Legado 规则）** 融合在一起的全能阅读 App，
+> 配合 Supabase 云端同步，与 [OmniHub 网页版](https://smalluniverseheng.github.io/OmniHub/) **数据互通**。
 
-[![Download](https://img.shields.io/github/v/release/venera-app/venera)](https://github.com/venera-app/venera/releases)
-[![AUR Version](https://img.shields.io/aur/version/venera-bin)](https://aur.archlinux.org/packages/venera-bin)
-[![F-Droid Version](https://img.shields.io/f-droid/v/com.github.wgh136.venera)](https://f-droid.org/packages/com.github.wgh136.venera/)
+本项目基于上游开源项目 [venera-app/venera](https://github.com/venera-app/venera)
+（GPL-3.0，已停止维护并鼓励 fork）构建，并移植 [Legado 开源阅读](https://github.com/gedoor/legado)
+的书源规则引擎（Dart 实现）。遵循 GPL-3.0 开源协议。
 
-A comic reader that support reading local and network comics.
+## 特性规划
 
-## Features
-- Read local comics
-- Use javascript to create comic sources
-- Read comics from network sources
-- Manage favorite comics
-- Download comics
-- View comments, tags, and other information of comics if the source supports
-- Login to comment, rate, and other operations if the source supports
+- ✅ 漫画阅读（Venera 原版代码：本地漫画、JS 漫画源、收藏、下载）
+- 🚧 小说阅读（Legado 书源规则引擎 Dart 移植，搜索/发现/正文/换源）
+- 🚧 云端同步（Supabase：书源、书架、阅读进度、收藏、设置，与网页版互通）
+- 🚧 AI 对话（集成开源 Flutter 聊天 UI）
 
-## Build from source
-1. Clone the repository
-2. Install flutter, see [flutter.dev](https://flutter.dev/docs/get-started/install)
-3. Install rust, see [rustup.rs](https://rustup.rs/)
-4. Build for your platform: e.g. `flutter build apk`
+## 架构与文档
 
-## Create a new comic source
-See [Comic Source](doc/comic_source.md)
+- [doc/omnihub/ARCHITECTURE.md](doc/omnihub/ARCHITECTURE.md) —— 融合架构与里程碑
+- [doc/omnihub/SYNC_SCHEMA.md](doc/omnihub/SYNC_SCHEMA.md) —— 云端同步表结构（网页/App 通用）
 
-## Thanks
+## 构建
 
-### Tags Translation
-[EhTagTranslation](https://github.com/EhTagTranslation/Database)
+无需本地环境：推送 tag（如 `v1.6`）后 GitHub Actions 自动构建 APK，
+在 Actions 产物（artifact）或 Releases 中下载 `OmniHub-*-arm64-v8a.apk`。
 
-The Chinese translation of the manga tags is from this project.
+本地构建见上游说明：安装 Flutter 3.41.4 + Rust（rustup），然后 `flutter build apk`。
 
-## Headless Mode
-See [Headless Doc](doc/headless_doc.md)
+## 致谢
 
+- [venera-app/venera](https://github.com/venera-app/venera) —— 漫画底座（GPL-3.0）
+- [gedoor/legado](https://github.com/gedoor/legado) —— 书源规则设计（GPL-3.0）
