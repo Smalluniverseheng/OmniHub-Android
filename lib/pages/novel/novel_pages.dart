@@ -1,6 +1,7 @@
 /// 小说模块页面：书源管理 / 搜索 / 详情目录 / 正文阅读
 library novel_pages;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
