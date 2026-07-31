@@ -227,7 +227,8 @@ class _AiSettingsState extends State<AiSettings> {
                     ),
                   if (AiProviders.keyUrls.containsKey(p.keySlug))
                     TextButton.icon(
-                      visualDensity: VisualDensity.compact,
+                      style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact),
                       onPressed: () =>
                           launchUrlString(AiProviders.keyUrls[p.keySlug]!),
                       icon: const Icon(Icons.open_in_new, size: 14),
