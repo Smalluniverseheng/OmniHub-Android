@@ -332,10 +332,9 @@ class LocalNovelImporter {
         .firstMatch(opf)
         ?.group(1);
     final ncxHref = manifest[ncxId]?['href'] ??
-        manifest.values
-            .firstWhere((v) => v['media-type'] == 'application/x-dtbncx+xml',
-                orElse: () => {'href': ''})
-            .value['href']!;
+        manifest.values.firstWhere(
+            (v) => v['media-type'] == 'application/x-dtbncx+xml',
+            orElse: () => {'href': ''})['href']!;
     if (ncxHref.isNotEmpty) {
       final ncxFile = findInZip(resolveHref(ncxHref));
       if (ncxFile != null) {
