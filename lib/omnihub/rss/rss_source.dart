@@ -16,7 +16,6 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../novel/book_source.dart';
-import '../novel/legado_engine.dart';
 
 /// 单篇 RSS 文章
 class RssArticle {
