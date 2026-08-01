@@ -11,6 +11,7 @@ import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
 import 'package:venera/omnihub/sync/profile.dart';
+import 'package:venera/omnihub/sync/sync_crypto.dart';
 
 class BookshelfSyncResult {
   final int pushed;
@@ -76,6 +77,10 @@ class BookshelfSync {
       } catch (_) {
         // 配额查询失败不阻塞同步
       }
+      // 开启同步加密时，上行内容在端内加密（密码只存本地）
+      if (SyncCrypto.enabled) {
+        records.updateAll((_, v) => SyncCrypto.encryptValue(v));
+      }
       await OmniSync.instance.pushRecords('bookshelf', records);
 
       // 2. 拉取云端（含网页端写入的），合并进本地
@@ -90,7 +95,12 @@ class BookshelfSync {
         fav.createFolder(cloudFolder);
       }
       for (final row in remote) {
-        final v = row['value'] as Map<String, dynamic>;
+        final raw = row['value'] as Map<String, dynamic>;
+        // 加密记录：本地有密钥才解密，没有密钥（未设置/换设备未同步密码）跳过
+        final v = SyncCrypto.isEncryptedValue(raw)
+            ? SyncCrypto.decryptValue(raw)
+            : raw;
+        if (v == null) continue;
         if (v['_deleted'] == true) continue;
         final key = row['key'] as String;
         if (existing.contains(key)) continue;

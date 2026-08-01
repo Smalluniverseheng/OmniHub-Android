@@ -22,6 +22,7 @@ import 'package:venera/omnihub/video/tvbox.dart';
 
 import 'omni_sync.dart';
 import 'profile.dart';
+import 'sync_crypto.dart';
 
 class UserDataSync {
   UserDataSync._();
@@ -68,6 +69,9 @@ class UserDataSync {
     if (!await _isMember()) return; // 普通用户不同步
     _pushing = true;
     try {
+      final encOn = SyncCrypto.enabled;
+      Map<String, dynamic> wrap(Map<String, dynamic> j) =>
+          encOn ? SyncCrypto.encryptValue(j) : j;
       final rows = <Map<String, dynamic>>[];
 
       // 1) 小说书源（legado / tauri）
@@ -77,7 +81,7 @@ class UserDataSync {
           'media_type': s.isTauri ? 'tauri_${s.tauriType}' : 'novel',
           'name': s.bookSourceName,
           'enabled': s.enabled,
-          'source_json': s.toJson(),
+          'source_json': wrap(s.toJson()),
         });
       }
 
@@ -93,12 +97,12 @@ class UserDataSync {
           'media_type': 'comic',
           'name': c.name,
           'enabled': true,
-          'source_json': {
+          'source_json': wrap({
             'key': c.key,
             'name': c.name,
             'fileName': c.filePath.split('/').last,
             'js': code,
-          },
+          }),
         });
       }
 
@@ -109,7 +113,7 @@ class UserDataSync {
           'media_type': 'video',
           'name': t.name,
           'enabled': true,
-          'source_json': t.toJson(),
+          'source_json': wrap(t.toJson()),
         });
       }
 
@@ -159,7 +163,9 @@ class UserDataSync {
           'provider': p.keySlug,
           'name': p.name,
           'base_url': p.custom ? store.customBase : p.base,
-          'api_key': key,
+          // 开启同步加密时，Key 在端内加密后再上传
+          'api_key':
+              SyncCrypto.enabled ? SyncCrypto.encryptText(key) : key,
           'models': p.models,
         });
       }
@@ -214,8 +220,14 @@ class UserDataSync {
       for (final row in res.data) {
         if (row is! Map) continue;
         final provider = row['provider']?.toString() ?? '';
-        final key = row['api_key']?.toString() ?? '';
+        var key = row['api_key']?.toString() ?? '';
         final base = row['base_url']?.toString() ?? '';
+        // 加密 Key：本地有密钥才解密，无密钥跳过
+        if (key.startsWith(SyncCrypto.prefix)) {
+          final dec = SyncCrypto.decryptText(key);
+          if (dec == null) continue;
+          key = dec;
+        }
         if (provider.isEmpty ||
             provider.startsWith('__') ||
             key.isEmpty) {
@@ -257,7 +269,13 @@ class UserDataSync {
         final type = row['media_type']?.toString() ?? '';
         final sj = row['source_json'];
         if (sj is! Map) continue;
-        final j = Map<String, dynamic>.from(sj);
+        var j = Map<String, dynamic>.from(sj);
+        // 加密书源：本地有密钥才解密，无密钥跳过
+        if (SyncCrypto.isEncryptedValue(j)) {
+          final dec = SyncCrypto.decryptValue(j);
+          if (dec == null) continue;
+          j = dec;
+        }
         if (type == 'novel' || type.startsWith('tauri_')) {
           // 已存在（同名同地址）跳过
           final name = (j['bookSourceName'] ?? '').toString();

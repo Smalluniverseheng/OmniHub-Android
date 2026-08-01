@@ -15,7 +15,9 @@ import 'package:venera/omnihub/novel/book_source.dart';
 import 'package:venera/omnihub/novel/legado_engine.dart';
 import 'package:venera/omnihub/novel/local_import.dart';
 import 'package:venera/omnihub/novel/source_detect.dart';
+import 'package:venera/omnihub/rss/rss_source.dart';
 import 'package:venera/omnihub/video/tvbox.dart';
+import 'package:venera/pages/novel/rss_pages.dart';
 import 'package:venera/pages/video/video_pages.dart';
 import 'package:venera/omnihub/stats/reading_stats.dart';
 import 'package:venera/omnihub/tts/edge_tts.dart';
@@ -144,7 +146,7 @@ class NovelSourcesPage extends StatefulWidget {
       final seg = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
       // host 为 import 时 path 在 host 之后；也兼容 path 直接是类型
       final p = uri.host == 'import' ? seg : uri.host;
-      const supported = ['bookSource', 'textTocRule', 'replaceRule', 'httpTTS'];
+      const supported = ['bookSource', 'textTocRule', 'replaceRule', 'httpTTS', 'rssSource'];
       if (!supported.contains(p)) {
         if (context.mounted) {
           context.showMessage(
@@ -175,6 +177,19 @@ class NovelSourcesPage extends StatefulWidget {
         final res = await dio.get<String>(c);
         final text = res.data ?? '';
         if (text.isEmpty) continue;
+        if (type == 'rssSource') {
+          final (n, skip) =
+              await RssSourceManager.instance.importJson(text);
+          if (context.mounted) {
+            context.showMessage(
+                message: (n > 0
+                        ? "导入 @c 个订阅源（到 RSS 订阅）"
+                            .tlParams({'c': n})
+                        : "没有可导入的内容".tl) +
+                    (skip > 0 ? '，跳过 $skip 个重复' : ''));
+          }
+          return;
+        }
         if (type != 'bookSource') {
           // 指定类型（目录规则/替换规则/TTS）直接按类型导入
           final (n, label) = await LegadoImport.importByType(type, text);
@@ -254,8 +269,15 @@ class NovelSourcesPage extends StatefulWidget {
           }
           return;
         case SourceDetectType.legadoRss:
+          final (n, skip) = await RssSourceManager.instance
+              .importJson(jsonEncode(d.sources));
           if (context.mounted) {
-            context.showMessage(message: "识别为 RSS 订阅源，App 暂不支持订阅功能".tl);
+            context.showMessage(
+                message: (n > 0
+                        ? "导入 @c 个订阅源（到 RSS 订阅）"
+                            .tlParams({'c': n})
+                        : "没有可导入的内容".tl) +
+                    (skip > 0 ? '，跳过 $skip 个重复' : ''));
           }
           return;
         case SourceDetectType.venera:
@@ -478,6 +500,11 @@ class _NovelSourcesPageState extends State<NovelSourcesPage> {
       appBar: AppBar(
         title: Text("书源管理".tl),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.rss_feed),
+            tooltip: "RSS 订阅源".tl,
+            onPressed: () => context.to(() => const RssHomePage()),
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: "导入书源".tl,

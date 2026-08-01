@@ -10,6 +10,7 @@ import 'package:venera/omnihub/stats/reading_stats.dart';
 import 'package:venera/omnihub/sync/bookshelf_sync.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
 import 'package:venera/omnihub/sync/profile.dart';
+import 'package:venera/omnihub/sync/sync_crypto.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/translations.dart';
 
@@ -303,6 +304,71 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
     }
   }
 
+  /// 设置/更换同步加密密码（密码只存本机，派生密钥后加密上行内容）
+  Future<void> _showEncPasswordDialog() async {
+    final pwdCtl = TextEditingController();
+    final pwd2Ctl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(SyncCrypto.hasKey ? "更换同步密码".tl : "设置同步密码".tl),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pwdCtl,
+              obscureText: true,
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                labelText: "密码（至少 6 位）".tl,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: pwd2Ctl,
+              obscureText: true,
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                labelText: "确认密码".tl,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "密码只保存在本机，云端与服务器均不可见；忘记密码将无法解密已加密的云端数据"
+                  .tl,
+              style: TextStyle(
+                  fontSize: 12, color: context.colorScheme.outline),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text("Cancel".tl),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text("确定".tl),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final pwd = pwdCtl.text;
+    if (pwd.length < 6) {
+      context.showMessage(message: "密码至少 6 位".tl);
+      return;
+    }
+    if (pwd != pwd2Ctl.text) {
+      context.showMessage(message: "两次输入的密码不一致".tl);
+      return;
+    }
+    SyncCrypto.setPassword(pwd);
+    if (mounted) {
+      context.showMessage(message: "同步加密已开启，之后同步的内容将加密上传".tl);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final loggedIn = OmniSync.instance.isLoggedIn;
@@ -339,6 +405,35 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
               appdata.saveData();
               setState(() {});
             },
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text("云端数据加密".tl),
+            subtitle: Text(
+                SyncCrypto.hasKey
+                    ? "已设置同步密码，上行内容在端内 AES 加密（密码只存本地，忘记将无法解密云端数据）"
+                        .tl
+                    : "设置本地密码后，书架/API Key/书源加密上传，密码只存本机".tl,
+                style: const TextStyle(fontSize: 12)),
+            value: SyncCrypto.enabled,
+            onChanged: (v) async {
+              if (v) {
+                await _showEncPasswordDialog();
+              } else {
+                SyncCrypto.disable();
+              }
+              if (mounted) setState(() {});
+            },
+            secondary: SyncCrypto.enabled
+                ? IconButton(
+                    icon: const Icon(Icons.key_outlined, size: 20),
+                    tooltip: "更换密码".tl,
+                    onPressed: () async {
+                      await _showEncPasswordDialog();
+                      if (mounted) setState(() {});
+                    },
+                  )
+                : null,
           ),
           const SizedBox(height: 12),
           Card(

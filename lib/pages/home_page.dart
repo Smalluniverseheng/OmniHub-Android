@@ -19,6 +19,7 @@ import 'package:venera/pages/comic_details_page/comic_page.dart';
 import 'package:venera/pages/favorites/favorites_page.dart';
 import 'package:venera/pages/follow_updates_page.dart';
 import 'package:venera/pages/novel/novel_pages.dart';
+import 'package:venera/pages/novel/rss_pages.dart';
 import 'package:venera/pages/search_page.dart';
 import 'package:venera/pages/shelf/import_export_pages.dart';
 import 'package:venera/pages/shelf/shelf_subpages.dart';
@@ -132,6 +133,7 @@ class _HomePageState extends State<HomePage>
             itemBuilder: (context) => [
               _menuItem('updates', Icons.notifications_outlined, "连载更新提醒"),
               _menuItem('video', Icons.movie_outlined, "影视"),
+              _menuItem('rss', Icons.rss_feed, "RSS 订阅"),
               _menuItem('sources', Icons.dns_outlined, "书源管理"),
               _menuItem(
                   'toggle',
@@ -170,6 +172,9 @@ class _HomePageState extends State<HomePage>
         break;
       case 'video':
         context.to(() => const VideoHomePage());
+        break;
+      case 'rss':
+        context.to(() => const RssHomePage());
         break;
       case 'sources':
         context.to(() => const NovelSourcesPage());
