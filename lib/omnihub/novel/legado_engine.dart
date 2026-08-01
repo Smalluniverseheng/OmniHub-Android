@@ -8,6 +8,7 @@ library legado_engine;
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:fast_gbk/fast_gbk.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as htmlparser;
 import 'package:venera/foundation/js_engine.dart';
@@ -59,12 +60,45 @@ class LegadoEngine {
     connectTimeout: const Duration(seconds: 12),
     receiveTimeout: const Duration(seconds: 20),
     responseType: ResponseType.plain,
+    responseDecoder: decodeResponseBytes,
     validateStatus: (s) => s != null && s < 400,
     headers: {
       'User-Agent':
           'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
     },
   ));
+
+  /// 按响应声明的编码解码：大量中文书源站仍是 GBK/GB2312/GB18030，
+  /// 若一律按 UTF-8 解码会得到乱码，导致规则匹配不到目录与正文。
+  static String decodeResponseBytes(
+      List<int> bytes, RequestOptions options, ResponseBody responseBody) {
+    var charset = '';
+    final ct = responseBody.headers['content-type']?.join(';') ?? '';
+    final m = RegExp(r'charset=["\x27]?\s*([\w-]+)', caseSensitive: false)
+        .firstMatch(ct);
+    if (m != null) charset = m.group(1)!.toLowerCase();
+    if (charset.isEmpty && bytes.isNotEmpty) {
+      final headLen = bytes.length < 4096 ? bytes.length : 4096;
+      final head = latin1.decode(bytes.sublist(0, headLen));
+      final mm = RegExp(r'<meta[^>]+charset=["\x27]?\s*([\w-]+)',
+              caseSensitive: false)
+          .firstMatch(head);
+      if (mm != null) charset = mm.group(1)!.toLowerCase();
+    }
+    if (charset.startsWith('gb')) {
+      try {
+        return gbk.decode(bytes);
+      } catch (_) {}
+    }
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {
+      try {
+        return gbk.decode(bytes);
+      } catch (_) {}
+      return utf8.decode(bytes, allowMalformed: true);
+    }
+  }
 
   static String trim(Object? s) => (s ?? '').toString().trim();
   static bool isNonEmpty(Object? s) => trim(s) != '';
@@ -129,7 +163,10 @@ var java = {
   static final Map<String, String> _ajaxCache = {};
 
   /// 执行 JS 段；失败降级为空字符串
-  static dynamic runJs(String code, Object? result, EvalContext context) {
+  ///
+  /// [vars] 额外注入的顶层变量（如搜索 URL 模板中的 key / page）
+  static dynamic runJs(String code, Object? result, EvalContext context,
+      {Map<String, Object?> vars = const {}}) {
     try {
       final wrapper = StringBuffer()
         ..write('(function(){')
@@ -147,7 +184,19 @@ var java = {
         ..write(jsonEncode(context.chapter ?? {}))
         ..write(';var baseUrl=')
         ..write(jsonEncode(context.baseUrl))
-        ..write(';var cookie={};var cache={};var __r=eval(')
+        ..write(';');
+      for (final e in vars.entries) {
+        if (RegExp(r'^[a-zA-Z_$][\w$]*$').hasMatch(e.key)) {
+          wrapper
+            ..write('var ')
+            ..write(e.key)
+            ..write('=')
+            ..write(jsonEncode(e.value))
+            ..write(';');
+        }
+      }
+      wrapper
+        ..write('var cookie={};var cache={};var __r=eval(')
         ..write(jsonEncode(code))
         ..write(');return JSON.stringify({r:(__r===null||__r===undefined)?"":__r,v:__legadoVars});})()');
       final out = JsEngine().runCode(wrapper.toString());
@@ -879,9 +928,34 @@ var java = {
 
   /* ---------------- 网络 ---------------- */
 
+  /// 阅读3.0 URL 模板求值：{{key}} {{page}} 之外，
+  /// 支持 {{@js:...}} 与整段 <js>…</js> 地址（JS 内可用 key / page 变量）
+  static String evalUrlTemplates(String raw, String key, int page) {
+    var out = trim(raw);
+    if (out.startsWith('<js>') && out.endsWith('</js>')) {
+      final v = runJs(out.substring(4, out.length - 5), '',
+          EvalContext(baseUrl: ''),
+          vars: {'key': key, 'page': page});
+      return trim(v);
+    }
+    if (!out.contains('{{')) return out;
+    return out.replaceAllMapped(RegExp(r'\{\{([\s\S]*?)\}\}'), (m) {
+      final t = trim(m.group(1));
+      if (t == 'key' || t == 'searchKey') {
+        return Uri.encodeComponent(key);
+      }
+      if (t == 'page' || t == 'searchPage') return '$page';
+      var js = t;
+      if (js.startsWith('@js:')) js = js.substring(4);
+      final v = runJs(js, '', EvalContext(baseUrl: ''),
+          vars: {'key': key, 'page': page});
+      return v?.toString() ?? '';
+    });
+  }
+
   static ({String url, String method, Map<String, String> headers, String? body})
       buildRequest(String searchUrl, String key, int page) {
-    var raw = trim(searchUrl);
+    var raw = evalUrlTemplates(searchUrl, key, page);
     var url = raw;
     Map<String, dynamic>? options;
     final optIdx = raw.indexOf(',{');

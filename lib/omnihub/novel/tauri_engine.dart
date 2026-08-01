@@ -94,8 +94,40 @@ class TauriEngine {
     connectTimeout: const Duration(seconds: 15),
     receiveTimeout: const Duration(seconds: 30),
     responseType: ResponseType.plain,
+    responseDecoder: _decodeResponse,
     validateStatus: (_) => true,
   ));
+
+  /// 按响应声明的编码解码（中文站常见 GBK/GB2312/GB18030）
+  static String _decodeResponse(
+      List<int> bytes, RequestOptions options, ResponseBody responseBody) {
+    var charset = '';
+    final ct = responseBody.headers['content-type']?.join(';') ?? '';
+    final m = RegExp(r'charset=["\x27]?\s*([\w-]+)', caseSensitive: false)
+        .firstMatch(ct);
+    if (m != null) charset = m.group(1)!.toLowerCase();
+    if (charset.isEmpty && bytes.isNotEmpty) {
+      final headLen = bytes.length < 4096 ? bytes.length : 4096;
+      final head = latin1.decode(bytes.sublist(0, headLen));
+      final mm = RegExp(r'<meta[^>]+charset=["\x27]?\s*([\w-]+)',
+              caseSensitive: false)
+          .firstMatch(head);
+      if (mm != null) charset = mm.group(1)!.toLowerCase();
+    }
+    if (charset.startsWith('gb')) {
+      try {
+        return const GbkCodec().decode(bytes);
+      } catch (_) {}
+    }
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {
+      try {
+        return const GbkCodec().decode(bytes);
+      } catch (_) {}
+      return utf8.decode(bytes, allowMalformed: true);
+    }
+  }
 
   /// 解析后的 DOM 句柄池
   final Map<int, Object> _domHandles = {}; // int -> Document|Element

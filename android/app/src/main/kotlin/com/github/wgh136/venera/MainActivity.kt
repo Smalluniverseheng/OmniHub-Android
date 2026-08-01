@@ -211,6 +211,14 @@ class MainActivity : FlutterFragmentActivity() {
             } else res.notImplemented()
         }
 
+        // 应用内更新：返回设备支持的 ABI，用于选择对应安装包
+        val updateChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "omnihub/update")
+        updateChannel.setMethodCallHandler { call, res ->
+            if (call.method == "getAbis") {
+                res.success(android.os.Build.SUPPORTED_ABIS.toList())
+            } else res.notImplemented()
+        }
+
         val storageChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "venera/storage")
         storageChannel.setMethodCallHandler { _, res ->
             requestStoragePermission { result ->

@@ -661,7 +661,10 @@ class _QrScanPageState extends State<_QrScanPage> {
 
 /// 搜索页
 class NovelSearchPage extends StatefulWidget {
-  const NovelSearchPage({super.key});
+  /// 嵌入模式：作为统一搜索页的「小说」分页内容，不带 Scaffold/AppBar
+  final bool embedded;
+
+  const NovelSearchPage({super.key, this.embedded = false});
 
   @override
   State<NovelSearchPage> createState() => _NovelSearchPageState();
@@ -921,9 +924,7 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("搜索小说".tl)),
-      body: Column(
+    final body = Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
@@ -1180,7 +1181,11 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                       }),
           ),
         ],
-      ),
+      );
+    if (widget.embedded) return body;
+    return Scaffold(
+      appBar: AppBar(title: Text("搜索小说".tl)),
+      body: body,
     );
   }
 }

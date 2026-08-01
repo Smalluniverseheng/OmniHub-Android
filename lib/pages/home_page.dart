@@ -12,6 +12,7 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/foundation/history.dart';
+import 'package:venera/omnihub/novel/book_source.dart';
 import 'package:venera/omnihub/shelf/recycle_bin.dart';
 import 'package:venera/omnihub/stats/reading_stats.dart';
 import 'package:venera/pages/comic_details_page/comic_page.dart';
@@ -54,7 +55,7 @@ class _HomePageState extends State<HomePage>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 5, vsync: this);
+    _tab = TabController(length: 4, vsync: this);
     _tab.addListener(() {
       if (_tab.index != _tabIndex) {
         setState(() => _tabIndex = _tab.index);
@@ -91,7 +92,6 @@ class _HomePageState extends State<HomePage>
               ),
               const _HistoryTab(),
               const FavoritesPage(),
-              const NovelTab(),
               _buildCommunityPlaceholder(),
             ],
           ),
@@ -117,7 +117,6 @@ class _HomePageState extends State<HomePage>
                 Tab(text: "书架".tl),
                 Tab(text: "History".tl),
                 Tab(text: "Favorites".tl),
-                Tab(text: "小说".tl),
                 Tab(text: "圈子".tl),
               ],
             ),
@@ -133,6 +132,7 @@ class _HomePageState extends State<HomePage>
             itemBuilder: (context) => [
               _menuItem('updates', Icons.notifications_outlined, "连载更新提醒"),
               _menuItem('video', Icons.movie_outlined, "影视"),
+              _menuItem('sources', Icons.dns_outlined, "书源管理"),
               _menuItem(
                   'toggle',
                   _displayMode == 'grid'
@@ -170,6 +170,9 @@ class _HomePageState extends State<HomePage>
         break;
       case 'video':
         context.to(() => const VideoHomePage());
+        break;
+      case 'sources':
+        context.to(() => const NovelSourcesPage());
         break;
       case 'toggle':
         setState(() =>
@@ -243,6 +246,8 @@ class _HomePageState extends State<HomePage>
   Widget _buildChips() {
     final chips = <(String, String)>[
       ('all', "全部"),
+      ('comic', "漫画"),
+      ('novel', "小说"),
       ('reading', "阅读"),
       ('audio', "听书"),
       ('short', "短剧"),
@@ -380,7 +385,16 @@ class _TodayReadBarState extends State<_TodayReadBar> {
   }
 }
 
-/// 书架 Tab：宫格/列表 + 长按多选编辑
+/// 书架统一条目：漫画或小说
+class _ShelfEntry {
+  final FavoriteItemWithFolderInfo? comic;
+  final NovelBook? novel;
+  const _ShelfEntry.comic(this.comic) : novel = null;
+  const _ShelfEntry.novel(this.novel) : comic = null;
+  bool get isNovel => novel != null;
+}
+
+/// 书架 Tab：宫格/列表 + 长按多选编辑（漫画与小说合并展示）
 class _ShelfTab extends StatefulWidget {
   final String displayMode;
   final String chip;
@@ -420,12 +434,15 @@ class _ShelfTabState extends State<_ShelfTab>
     _all = LocalFavoritesManager().allComics();
     LocalFavoritesManager().addListener(_reload);
     ShelfRecycleBin.instance.addListener(_reload);
+    NovelShelf.instance.load().then((_) => _reload());
+    NovelShelf.instance.addListener(_reload);
   }
 
   @override
   void dispose() {
     LocalFavoritesManager().removeListener(_reload);
     ShelfRecycleBin.instance.removeListener(_reload);
+    NovelShelf.instance.removeListener(_reload);
     super.dispose();
   }
 
@@ -475,6 +492,95 @@ class _ShelfTabState extends State<_ShelfTab>
     return res.toList();
   }
 
+  /// 合并后的书架条目（漫画 + 小说，按 chip 分类过滤）
+  List<_ShelfEntry> get _entries {
+    final out = <_ShelfEntry>[];
+    final novels = NovelShelf.instance.books;
+    switch (widget.chip) {
+      case 'all':
+        out.addAll(_items.map((e) => _ShelfEntry.comic(e)));
+        out.addAll(novels.map((e) => _ShelfEntry.novel(e)));
+        break;
+      case 'comic':
+        out.addAll(_items.map((e) => _ShelfEntry.comic(e)));
+        break;
+      case 'novel':
+        out.addAll(novels.map((e) => _ShelfEntry.novel(e)));
+        break;
+      case 'reading':
+        out.addAll(_items.map((e) => _ShelfEntry.comic(e)));
+        out.addAll(novels
+            .where((b) => NovelShelf.instance.progress.containsKey(b.url))
+            .map((e) => _ShelfEntry.novel(e)));
+        break;
+      default:
+        // 听书/短剧/漫剧：后续版本
+        break;
+    }
+    return out;
+  }
+
+  String _novelProgressText(NovelBook b) {
+    final p = NovelShelf.instance.progress[b.url];
+    if (p == null) return "未读".tl;
+    return "读到第 @c 章".tlParams({'c': p + 1});
+  }
+
+  Widget _novelCover(NovelBook b, {double? width, double? height}) {
+    final placeholder = Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: context.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Icon(Icons.menu_book_outlined,
+            size: 28, color: context.colorScheme.primary),
+      ),
+    );
+    if (b.cover.isEmpty) return placeholder;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        b.cover,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => placeholder,
+        loadingBuilder: (_, child, progress) =>
+            progress == null ? child : placeholder,
+      ),
+    );
+  }
+
+  void _openNovel(NovelBook b) {
+    context.to(() => NovelBookPage(book: b));
+  }
+
+  void _onNovelLongPress(NovelBook b) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(b.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        content: Text("要将这本小说移出书架吗？".tl),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text("Cancel".tl),
+          ),
+          FilledButton(
+            onPressed: () {
+              NovelShelf.instance.remove(b.url);
+              Navigator.pop(ctx);
+            },
+            child: Text("移出书架".tl),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _progressText(FavoriteItem c) {
     final h = HistoryManager().find(c.id, c.type);
     if (h == null) return "未读".tl;
@@ -517,12 +623,12 @@ class _ShelfTabState extends State<_ShelfTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final items = _items;
+    final entries = _entries;
     return Column(
       children: [
-        if (_selecting) _buildSelectionBar(items),
+        if (_selecting) _buildSelectionBar(entries),
         Expanded(
-          child: items.isEmpty
+          child: entries.isEmpty
               ? Center(
                   child: Text(
                     widget.chip == 'audio' ||
@@ -534,15 +640,16 @@ class _ShelfTabState extends State<_ShelfTab>
                   ),
                 )
               : widget.displayMode == 'grid'
-                  ? _buildGrid(items)
-                  : _buildList(items),
+                  ? _buildGrid(entries)
+                  : _buildList(entries),
         ),
         if (_selecting) _buildActionBar(),
       ],
     );
   }
 
-  Widget _buildSelectionBar(List<FavoriteItemWithFolderInfo> items) {
+  Widget _buildSelectionBar(List<_ShelfEntry> entries) {
+    final comics = entries.where((e) => !e.isNovel).toList();
     return Container(
       height: 44,
       color: context.colorScheme.surfaceContainerHigh,
@@ -559,23 +666,23 @@ class _ShelfTabState extends State<_ShelfTab>
           const Spacer(),
           TextButton(
             onPressed: () => setState(() {
-              if (_selected.length == items.length) {
+              if (_selected.length == comics.length) {
                 _selected.clear();
               } else {
                 _selected
                   ..clear()
-                  ..addAll(items);
+                  ..addAll(comics.map((e) => e.comic!));
               }
             }),
             child: Text(
-                _selected.length == items.length ? "取消全选".tl : "全选".tl),
+                _selected.length == comics.length ? "取消全选".tl : "全选".tl),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildGrid(List<FavoriteItemWithFolderInfo> items) {
+  Widget _buildGrid(List<_ShelfEntry> entries) {
     return GridView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -584,9 +691,35 @@ class _ShelfTabState extends State<_ShelfTab>
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,
       ),
-      itemCount: items.length,
+      itemCount: entries.length,
       itemBuilder: (context, i) {
-        final c = items[i];
+        final entry = entries[i];
+        if (entry.isNovel) {
+          final b = entry.novel!;
+          return GestureDetector(
+            onTap: () => _openNovel(b),
+            onLongPress: () => _onNovelLongPress(b),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _novelCover(b, width: double.infinity)),
+                const SizedBox(height: 4),
+                Text(
+                  b.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                Text(
+                  _novelProgressText(b),
+                  style: TextStyle(
+                      fontSize: 11, color: context.colorScheme.outline),
+                ),
+              ],
+            ),
+          );
+        }
+        final c = entry.comic!;
         final selected = _selected.contains(c);
         return GestureDetector(
           onTap: () => _onTapItem(c),
@@ -652,12 +785,39 @@ class _ShelfTabState extends State<_ShelfTab>
     );
   }
 
-  Widget _buildList(List<FavoriteItemWithFolderInfo> items) {
+  Widget _buildList(List<_ShelfEntry> entries) {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: items.length,
+      itemCount: entries.length,
       itemBuilder: (context, i) {
-        final c = items[i];
+        final entry = entries[i];
+        if (entry.isNovel) {
+          final b = entry.novel!;
+          return ListTile(
+            leading: SizedBox(
+              width: 44,
+              height: 60,
+              child: _novelCover(b, width: 44, height: 60),
+            ),
+            title:
+                Text(b.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+              [
+                if (b.author.isNotEmpty) b.author,
+                _novelProgressText(b),
+              ].join(' · '),
+              style: const TextStyle(fontSize: 12),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.remove_circle_outline),
+              tooltip: "移出书架".tl,
+              onPressed: () => _onNovelLongPress(b),
+            ),
+            onTap: () => _openNovel(b),
+            onLongPress: () => _onNovelLongPress(b),
+          );
+        }
+        final c = entry.comic!;
         final selected = _selected.contains(c);
         final h = HistoryManager().find(c.id, c.type);
         return ListTile(

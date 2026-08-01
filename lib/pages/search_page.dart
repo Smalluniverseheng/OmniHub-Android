@@ -18,6 +18,7 @@ import 'package:venera/utils/translations.dart';
 
 import 'comic_details_page/comic_page.dart';
 import 'comic_source_page.dart';
+import 'novel/novel_pages.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -41,6 +42,10 @@ class _SearchPageState extends State<SearchPage> {
   var focusNode = FocusNode();
 
   var options = <String>[];
+
+  /// 搜索媒体：comic（漫画）/ novel（小说，阅读3.0 书源聚合）
+  String _media =
+      appdata.settings['searchMediaMode']?.toString() ?? 'comic';
 
   void update() {
     setState(() {});
@@ -222,14 +227,55 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  /// 顶部「漫画 / 小说」切换：搜索入口统一
+  Widget _buildMediaToggle() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: SegmentedButton<String>(
+        segments: [
+          ButtonSegment(
+            value: 'comic',
+            icon: const Icon(Icons.image_outlined, size: 18),
+            label: Text("漫画".tl),
+          ),
+          ButtonSegment(
+            value: 'novel',
+            icon: const Icon(Icons.menu_book_outlined, size: 18),
+            label: Text("小说".tl),
+          ),
+        ],
+        selected: {_media},
+        onSelectionChanged: (s) {
+          setState(() => _media = s.first);
+          appdata.settings['searchMediaMode'] = _media;
+          appdata.saveData();
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_media == 'novel') {
+      return Scaffold(
+        body: Column(
+          children: [
+            SizedBox(height: context.padding.top),
+            _buildMediaToggle(),
+            const Expanded(child: NovelSearchPage(embedded: true)),
+          ],
+        ),
+      );
+    }
     if (searchSources.isEmpty) {
       return buildEmpty();
     }
     return Scaffold(
       body: SmoothCustomScrollView(
-        slivers: buildSlivers().toList(),
+        slivers: [
+          SliverToBoxAdapter(child: _buildMediaToggle()),
+          ...buildSlivers(),
+        ],
       ),
     );
   }
