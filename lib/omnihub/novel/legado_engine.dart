@@ -24,6 +24,7 @@ class EvalContext {
   String baseUrl;
   Map<String, dynamic>? book;
   Map<String, dynamic>? chapter;
+  BookSource? source;
 
   EvalContext({
     this.element,
@@ -33,6 +34,7 @@ class EvalContext {
     this.baseUrl = '',
     this.book,
     this.chapter,
+    this.source,
   });
 
   EvalContext child({
@@ -48,6 +50,7 @@ class EvalContext {
         baseUrl: baseUrl,
         book: book,
         chapter: chapter,
+        source: source,
       );
 
   dom.Element? get root => element ?? document?.documentElement;
@@ -152,12 +155,50 @@ var java = {
   md5Encode: function(s) { return __md5(s); },
   base64Decode: function(s) { return __b64d(s); },
   base64Encode: function(s) { return __b64e(s); },
-  log: function() {}
+  toast: function() {},
+  longToast: function() {},
+  log: function() {},
+  startBrowser: function() { return ''; },
+  importScript: function() { return ''; },
+  getVerificationCode: function() { return ''; },
+  getSourceVariable: function() { return ''; },
+  setSourceVariable: function() {}
+};
+var cookie = {
+  getCookie: function() { return ''; },
+  replaceCookie: function() {},
+  removeCookie: function() {}
+};
+var cache = {
+  save: function() {},
+  get: function() { return ''; },
+  getFromMemory: function() { return ''; },
+  saveToMemory: function() {},
+  getHour: function() { return ''; },
+  saveHour: function() {}
 };
 ''';
 
   /// 跨规则持久变量（对应 Legado 的 java.put/java.get，源级共享）
   static final Map<String, dynamic> _jsVars = {};
+
+  /// 生成 JS 中的 source 对象（合金类聚合书源常 eval(String(source.bookSourceComment))）
+  static Map<String, dynamic> _sourceJsObject(BookSource? src) {
+    if (src == null) return {};
+    final raw = Map<String, dynamic>.from(src.raw);
+    return {
+      ...raw,
+      'bookSourceName': src.bookSourceName,
+      'bookSourceUrl': src.bookSourceUrl,
+      'bookSourceType': src.bookSourceType,
+      'bookSourceGroup': src.bookSourceGroup,
+      'bookSourceComment': raw['bookSourceComment']?.toString() ?? '',
+      'searchUrl': src.searchUrl ?? '',
+      'exploreUrl': src.exploreUrl ?? '',
+      'header': src.header ?? '',
+      'enabled': src.enabled,
+    };
+  }
 
   /// java.ajax 预抓取缓存：URL → 响应文本
   static final Map<String, String> _ajaxCache = {};
@@ -175,7 +216,10 @@ var java = {
         ..write(jsonEncode(_jsVars))
         ..write(';var __ajaxCache=')
         ..write(jsonEncode(_ajaxCache))
-        ..write(';java.ajax=function(u){var s=String(u);return __ajaxCache[s]||"";};')
+        ..write(';java.ajax=function(u){var s=String(u);return __ajaxCache[s]||"";};'
+            'java.ajaxAll=function(urls){var arr=[];for(var i=0;i<urls.length;i++){arr.push(String(urls[i]));}return arr.map(function(u){return {body:function(){return __ajaxCache[u]||"{\\"list\\":[]}";}};});};'
+            'source.getVariable=function(){return source.variable||"";};'
+            'source.putVariable=function(v){source.variable=v;};')
         ..write('var result=')
         ..write(jsonEncode(result?.toString() ?? ''))
         ..write(';var book=')
@@ -184,6 +228,12 @@ var java = {
         ..write(jsonEncode(context.chapter ?? {}))
         ..write(';var baseUrl=')
         ..write(jsonEncode(context.baseUrl))
+        ..write(';var source=')
+        ..write(jsonEncode(_sourceJsObject(context.source)))
+        ..write(';var url=baseUrl;var name=')
+        ..write(jsonEncode(context.source?.bookSourceName ?? ''))
+        ..write(';var p=')
+        ..write(jsonEncode('${vars['page'] ?? 1}'))
         ..write(';');
       for (final e in vars.entries) {
         if (RegExp(r'^[a-zA-Z_$][\w$]*$').hasMatch(e.key)) {
@@ -196,7 +246,7 @@ var java = {
         }
       }
       wrapper
-        ..write('var cookie={};var cache={};var __r=eval(')
+        ..write('var __r=eval(')
         ..write(jsonEncode(code))
         ..write(');return JSON.stringify({r:(__r===null||__r===undefined)?"":__r,v:__legadoVars});})()');
       final out = JsEngine().runCode(wrapper.toString());
@@ -265,7 +315,12 @@ var java = {
           ..write('__legadoVars=')
           ..write(jsonEncode(_jsVars))
           ..write(';var __ajaxUrls=[];'
-              'java.ajax=function(u){__ajaxUrls.push(String(u));return "";};')
+              'java.ajax=function(u){var s=String(u);__ajaxUrls.push(s);'
+              'return "{\\"class\\":[],\\"list\\":[]}";};'
+              'java.ajaxAll=function(urls){var arr=[];for(var i=0;i<urls.length;i++){arr.push(String(urls[i]));__ajaxUrls.push(String(urls[i]));}'
+              'return arr.map(function(u){return {body:function(){return "{\\"list\\":[]}";}};});};'
+              'source.getVariable=function(){return "";};'
+              'source.putVariable=function(){};')
           ..write('var result=')
           ..write(jsonEncode(ctx.text ?? ''))
           ..write(';var book=')
@@ -274,7 +329,11 @@ var java = {
           ..write(jsonEncode(ctx.chapter ?? {}))
           ..write(';var baseUrl=')
           ..write(jsonEncode(ctx.baseUrl))
-          ..write(';var cookie={};var cache={};try{eval(')
+          ..write(';var source=')
+          ..write(jsonEncode(_sourceJsObject(ctx.source ?? src)))
+          ..write(';var url=baseUrl;var name=')
+          ..write(jsonEncode((ctx.source ?? src)?.bookSourceName ?? ''))
+          ..write(';var p="1";try{eval(')
           ..write(jsonEncode(code))
           ..write(');}catch(e){}return JSON.stringify(__ajaxUrls);})()');
         final out = JsEngine().runCode(wrapper.toString());
@@ -930,13 +989,22 @@ var java = {
   /* ---------------- 网络 ---------------- */
 
   /// 阅读3.0 URL 模板求值：{{key}} {{page}} 之外，
-  /// 支持 {{@js:...}} 与整段 <js>…</js> 地址（JS 内可用 key / page 变量）
-  static String evalUrlTemplates(String raw, String key, int page) {
+  /// 支持 {{@js:...}}、整段 <js>…</js> 与整段 @js: 开头地址
+  ///（JS 内可用 key / page / name / p / source 变量）
+  static String evalUrlTemplates(String raw, String key, int page,
+      {BookSource? src}) {
     var out = trim(raw);
+    final vars = <String, Object?>{'key': key, 'page': page};
+    if (out.startsWith('@js:')) {
+      final v = runJs(out.substring(4), '',
+          EvalContext(baseUrl: src?.bookSourceUrl ?? '', source: src),
+          vars: vars);
+      return trim(v);
+    }
     if (out.startsWith('<js>') && out.endsWith('</js>')) {
       final v = runJs(out.substring(4, out.length - 5), '',
-          EvalContext(baseUrl: ''),
-          vars: {'key': key, 'page': page});
+          EvalContext(baseUrl: src?.bookSourceUrl ?? '', source: src),
+          vars: vars);
       return trim(v);
     }
     if (!out.contains('{{')) return out;
@@ -948,15 +1016,16 @@ var java = {
       if (t == 'page' || t == 'searchPage') return '$page';
       var js = t;
       if (js.startsWith('@js:')) js = js.substring(4);
-      final v = runJs(js, '', EvalContext(baseUrl: ''),
-          vars: {'key': key, 'page': page});
+      final v = runJs(js, '',
+          EvalContext(baseUrl: src?.bookSourceUrl ?? '', source: src),
+          vars: vars);
       return v?.toString() ?? '';
     });
   }
 
   static ({String url, String method, Map<String, String> headers, String? body})
-      buildRequest(String searchUrl, String key, int page) {
-    var raw = evalUrlTemplates(searchUrl, key, page);
+      buildRequest(String searchUrl, String key, int page, {BookSource? src}) {
+    var raw = evalUrlTemplates(searchUrl, key, page, src: src);
     var url = raw;
     Map<String, dynamic>? options;
     final optIdx = raw.indexOf(',{');
@@ -1058,9 +1127,11 @@ var java = {
     if (src.searchUrl == null) {
       throw Exception('书源「${src.bookSourceName}」未配置搜索地址');
     }
-    final req = buildRequest(src.searchUrl!, keyword, 1);
-    final resp = await fetchText(req.url,
+    final req = buildRequest(src.searchUrl!, keyword, 1, src: src);
+    final searchUrl = absUrl(req.url, src.bookSourceUrl);
+    final resp = await fetchText(searchUrl,
         method: req.method, headers: req.headers, body: req.body, src: src);
+    resp.source = src;
     final rs = src.ruleSearch;
     await prefetchAjax(rs['bookList'], resp, src: src);
     final items = evalItems(rs['bookList']?.toString(), resp);
@@ -1089,10 +1160,10 @@ var java = {
           author: decodeEntities(evalRule(rs['author'], ictx, false).toString()),
           intro: decodeEntities(evalRule(rs['intro'], ictx, false).toString()),
           cover: absUrl(
-              evalRule(rs['coverUrl'], ictx, false).toString(), req.url),
+              evalRule(rs['coverUrl'], ictx, false).toString(), searchUrl),
           lastChapter: decodeEntities(
               evalRule(rs['lastChapter'], ictx, false).toString()),
-          url: absUrl(bookUrl, req.url),
+          url: absUrl(bookUrl, searchUrl),
           sourceName: src.bookSourceName,
           mediaType: src.mediaType,
           wordCount: decodeEntities(
@@ -1108,8 +1179,36 @@ var java = {
 
   /// 解析 exploreUrl 分类列表：每行/&& 分隔「名称::URL」
   static List<(String, String)> exploreCategories(BookSource src) {
-    final raw = trim(src.exploreUrl ?? '');
+    var raw = trim(src.exploreUrl ?? '');
     if (raw.isEmpty) return [];
+    // 整段 <js>…</js> 或 @js: 开头的探索地址：执行 JS 得到分类 JSON
+    if (raw.startsWith('<js>') || raw.startsWith('@js:')) {
+      var code = raw;
+      if (code.startsWith('@js:')) code = code.substring(4);
+      if (code.startsWith('<js>')) code = code.substring(4, code.length - 5);
+      final v = runJs(code, '',
+          EvalContext(baseUrl: src.bookSourceUrl, source: src));
+      final out = <(String, String)>[];
+      try {
+        final parsed = jsonDecode(v.toString());
+        if (parsed is List) {
+          for (final it in parsed) {
+            if (it is Map) {
+              final title = (it['title'] ?? it['name'] ?? '').toString();
+              final url = (it['url'] ?? '').toString();
+              if (title.isNotEmpty && url.isNotEmpty) {
+                out.add((title, url));
+              }
+            }
+          }
+        }
+      } catch (_) {}
+      if (out.isEmpty) {
+        // JS 未产出有效分类时，退化为单一入口（直接用书源地址）
+        out.add((src.bookSourceName, src.bookSourceUrl));
+      }
+      return out;
+    }
     final out = <(String, String)>[];
     for (final part in raw.split(RegExp(r'\n|&&'))) {
       final p = trim(part);
@@ -1130,9 +1229,11 @@ var java = {
     if (src.isTauri) {
       return TauriEngine.instance.explore(src, url, page, src.mediaType);
     }
-    final req = buildRequest(url, '', page);
-    final resp = await fetchText(req.url,
+    final req = buildRequest(url, '', page, src: src);
+    final exploreFullUrl = absUrl(req.url, src.bookSourceUrl);
+    final resp = await fetchText(exploreFullUrl,
         method: req.method, headers: req.headers, body: req.body, src: src);
+    resp.source = src;
     final re = src.ruleExplore.isNotEmpty ? src.ruleExplore : src.ruleSearch;
     await prefetchAjax(re['bookList'], resp, src: src);
     final items = evalItems(re['bookList']?.toString(), resp);
@@ -1156,10 +1257,10 @@ var java = {
           author: decodeEntities(evalRule(re['author'], ictx, false).toString()),
           intro: decodeEntities(evalRule(re['intro'], ictx, false).toString()),
           cover:
-              absUrl(evalRule(re['coverUrl'], ictx, false).toString(), req.url),
+              absUrl(evalRule(re['coverUrl'], ictx, false).toString(), exploreFullUrl),
           lastChapter: decodeEntities(
               evalRule(re['lastChapter'], ictx, false).toString()),
-          url: absUrl(bookUrl, req.url),
+          url: absUrl(bookUrl, exploreFullUrl),
           sourceName: src.bookSourceName,
           mediaType: src.mediaType,
           wordCount: decodeEntities(
@@ -1178,6 +1279,7 @@ var java = {
       return TauriEngine.instance.bookInfo(src, book);
     }
     final resp = await fetchText(book.url, src: src);
+    resp.source = src;
     final ri = src.ruleBookInfo;
     for (final k in ri.keys) {
       await prefetchAjax(ri[k], resp, src: src);
@@ -1218,6 +1320,7 @@ var java = {
 
     while (url.isNotEmpty && page < 5) {
       final resp = await fetchText(url, src: src);
+      resp.source = src;
       resp.book = book.toJson();
       await prefetchAjax(rt['chapterList'], resp, src: src);
       final items = evalItems(rt['chapterList']?.toString(), resp);
@@ -1250,8 +1353,8 @@ var java = {
               : absUrl(evalRule(rt['chapterUrl'], ictx, false).toString(),
                   url);
           if (name.isEmpty) continue;
-          chapters.add(
-              NovelChapter(decodeEntities(name), curl, isVolume: isVolume));
+          chapters.add(NovelChapter(decodeEntities(name), curl,
+              isVolume: isVolume, index: chapters.length));
         } catch (_) {}
       }
 
@@ -1307,7 +1410,8 @@ var java = {
     var page = 0;
     while (url.isNotEmpty && page < 3) {
       final resp = await fetchText(url, src: src);
-      resp.chapter = {'name': chapter.name, 'url': chapter.url};
+      resp.source = src;
+      resp.chapter = {'name': chapter.name, 'url': chapter.url, 'index': chapter.index};
       await prefetchAjax(rc['content'], resp, src: src);
       await prefetchAjax(rc['nextContentUrl'], resp, src: src);
       final vals = evalRule(rc['content'], resp, true) as List;

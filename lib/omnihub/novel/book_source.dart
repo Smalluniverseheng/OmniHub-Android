@@ -191,7 +191,9 @@ class NovelChapter {
   final String name;
   final String url;
   final bool isVolume;
-  const NovelChapter(this.name, this.url, {this.isVolume = false});
+  final int index;
+  const NovelChapter(this.name, this.url,
+      {this.isVolume = false, this.index = 0});
 }
 
 class NovelContent {
