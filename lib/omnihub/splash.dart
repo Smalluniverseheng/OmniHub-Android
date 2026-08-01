@@ -10,6 +10,8 @@ library omni_splash;
 
 import 'package:flutter/material.dart';
 
+import 'package:venera/foundation/appdata.dart';
+
 class OmniSplashScreen extends StatefulWidget {
   const OmniSplashScreen({required this.child, super.key});
 
@@ -72,10 +74,21 @@ class _OmniSplashScreenState extends State<OmniSplashScreen>
 class _SplashBody extends StatelessWidget {
   const _SplashBody();
 
+  bool get _isLight {
+    final mode = appdata.settings['theme_mode'];
+    if (mode == 'light') return true;
+    if (mode == 'dark') return false;
+    // system：跟随平台亮度
+    return WidgetsBinding
+            .instance.platformDispatcher.platformBrightness ==
+        Brightness.light;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final light = _isLight;
     return Container(
-      color: const Color(0xFF0D0E13),
+      color: light ? Colors.white : const Color(0xFF0D0E13),
       child: Center(
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: 1),
@@ -125,7 +138,7 @@ class _SplashBody extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 18),
-              const Text.rich(
+              Text.rich(
                 TextSpan(
                   children: [
                     TextSpan(text: '纵横四海'),
@@ -142,17 +155,21 @@ class _SplashBody extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFFA6ADC0),
+                  color: light
+                      ? const Color(0xFF4A5061)
+                      : const Color(0xFFA6ADC0),
                   letterSpacing: 2,
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'OMNIHUB',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF646C7E),
+                  color: light
+                      ? const Color(0xFF9AA0AE)
+                      : const Color(0xFF646C7E),
                   letterSpacing: 3,
                 ),
               ),

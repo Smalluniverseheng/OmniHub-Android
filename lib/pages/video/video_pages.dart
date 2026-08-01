@@ -13,6 +13,7 @@ import 'package:video_player/video_player.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/omnihub/novel/source_detect.dart';
 import 'package:venera/omnihub/video/tvbox.dart';
+import 'package:venera/pages/novel/novel_pages.dart';
 import 'package:venera/utils/translations.dart';
 
 class VideoHomePage extends StatefulWidget {
@@ -169,7 +170,22 @@ class _VideoHomePageState extends State<VideoHomePage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error == 'no-sources') {
-      return Center(child: Text("没有可用的视频源".tl));
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("你未添加书源".tl,
+                style: TextStyle(color: context.colorScheme.outline)),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: () =>
+                  context.to(() => const NovelSourcesPage()),
+              icon: const Icon(Icons.add),
+              label: Text("点击去添加".tl),
+            ),
+          ],
+        ),
+      );
     }
     if (_results.isEmpty) {
       return Center(
@@ -518,7 +534,9 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
 class VideoPlayerPage extends StatefulWidget {
   final String title;
   final String url;
-  const VideoPlayerPage({super.key, required this.title, required this.url});
+  final Map<String, String>? headers;
+  const VideoPlayerPage(
+      {super.key, required this.title, required this.url, this.headers});
 
   @override
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
@@ -539,7 +557,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   Future<void> _init() async {
     try {
-      final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      final c = VideoPlayerController.networkUrl(Uri.parse(widget.url),
+          httpHeaders: widget.headers ?? const {});
       await c.initialize();
       await c.play();
       if (mounted) setState(() => _controller = c);

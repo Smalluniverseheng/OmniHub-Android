@@ -9,6 +9,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'tauri_engine.dart' show TauriSourceMeta;
+
 class BookSource {
   String bookSourceName;
   String bookSourceUrl;
@@ -24,6 +26,10 @@ class BookSource {
   Map<String, dynamic> ruleToc;
   Map<String, dynamic> ruleContent;
   Map<String, dynamic> raw;
+  /// Legado-Tauri JS 书源源码（非空即为 Tauri 书源）
+  String? jsCode;
+  /// Tauri 书源媒体类型：novel|comic|video|music|webpage
+  String tauriType = 'novel';
 
   BookSource({
     required this.bookSourceName,
@@ -40,6 +46,8 @@ class BookSource {
     Map<String, dynamic>? ruleToc,
     Map<String, dynamic>? ruleContent,
     Map<String, dynamic>? raw,
+    this.jsCode,
+    this.tauriType = 'novel',
   })  : ruleSearch = ruleSearch ?? {},
         ruleExplore = ruleExplore ?? {},
         ruleBookInfo = ruleBookInfo ?? {},
@@ -47,7 +55,10 @@ class BookSource {
         ruleContent = ruleContent ?? {},
         raw = raw ?? {};
 
-  String get mediaType => bookSourceType == 2 ? 'comic' : 'novel';
+  bool get isTauri => jsCode != null && jsCode!.isNotEmpty;
+
+  String get mediaType =>
+      isTauri ? tauriType : (bookSourceType == 2 ? 'comic' : 'novel');
 
   static Map<String, dynamic> _map(dynamic v) =>
       v is Map ? Map<String, dynamic>.from(v) : {};
@@ -67,6 +78,8 @@ class BookSource {
         ruleToc: _map(j['ruleToc']),
         ruleContent: _map(j['ruleContent']),
         raw: j,
+        jsCode: j['tauriJs']?.toString(),
+        tauriType: (j['tauriType'] ?? 'novel').toString(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -83,6 +96,8 @@ class BookSource {
         'ruleBookInfo': ruleBookInfo,
         'ruleToc': ruleToc,
         'ruleContent': ruleContent,
+        if (jsCode != null) 'tauriJs': jsCode,
+        if (jsCode != null) 'tauriType': tauriType,
       };
 }
 
@@ -180,15 +195,26 @@ class NovelChapter {
 }
 
 class NovelContent {
-  final String type; // 'text' | 'images'
+  final String type; // 'text' | 'images' | 'video'
   final String text;
   final List<String> images;
+  /// 视频/音乐播放请求头（Tauri 视频书源可返回）
+  final Map<String, String>? headers;
+  /// true 表示 text 是 m3u8 文本内容而非 URL
+  final bool isM3u8Content;
   const NovelContent.text(this.text)
       : type = 'text',
-        images = const [];
+        images = const [],
+        headers = null,
+        isM3u8Content = false;
   const NovelContent.images(this.images)
       : type = 'images',
-        text = '';
+        text = '',
+        headers = null,
+        isM3u8Content = false;
+  const NovelContent.video(this.text, {this.headers, this.isM3u8Content = false})
+      : type = 'video',
+        images = const [];
 }
 
 /// 书源管理：增删改、启停、导入（JSON 文本/文件/URL 由页面层提供文本）
@@ -225,8 +251,45 @@ class BookSourceManager extends ChangeNotifier {
         jsonEncode(sources.map((e) => e.toJson()).toList()));
   }
 
-  List<BookSource> get enabledSources =>
-      sources.where((e) => e.enabled && e.searchUrl != null).toList();
+  List<BookSource> get enabledSources => sources
+      .where((e) =>
+          e.enabled &&
+          (e.searchUrl != null || (e.isTauri && e.tauriType != 'webpage')))
+      .toList();
+
+  /// 有发现/探索能力的书源
+  List<BookSource> get exploreSources => sources
+      .where((e) => e.enabled && ((e.exploreUrl?.isNotEmpty ?? false) || e.isTauri))
+      .toList();
+
+  /// 导入 Legado-Tauri JS 书源，返回 (新增/更新数, 跳过数)
+  Future<(int, int)> importTauri(String jsText) async {
+    final meta = TauriSourceMeta.parse(jsText);
+    if (meta == null || meta.name.isEmpty) {
+      throw '无法识别的 Tauri 书源';
+    }
+    final src = BookSource(
+      bookSourceName: meta.name,
+      bookSourceUrl: meta.url.isNotEmpty ? meta.url : 'tauri://${meta.uuid.isNotEmpty ? meta.uuid : meta.name}',
+      bookSourceGroup: meta.tags,
+      jsCode: jsText,
+      tauriType: meta.type,
+      raw: {'version': meta.version, 'author': meta.author, 'description': meta.description, 'logo': meta.logo},
+    );
+    final idx = sources.indexWhere((s) =>
+        s.bookSourceName == src.bookSourceName &&
+        s.bookSourceUrl == src.bookSourceUrl);
+    if (idx >= 0) {
+      if (sources[idx].jsCode == jsText) return (0, 1);
+      src.enabled = sources[idx].enabled;
+      sources[idx] = src;
+    } else {
+      sources.add(src);
+    }
+    await save();
+    notifyListeners();
+    return (1, 0);
+  }
 
   /// 导入书源 JSON（支持单对象或数组）。
   /// 完全相同（名称+地址+规则一致）的书源跳过，不重复导入；

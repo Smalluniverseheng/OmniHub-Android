@@ -8,6 +8,8 @@ import 'dart:convert';
 
 import 'package:archive/archive.dart';
 
+import 'tauri_engine.dart' show TauriSourceMeta;
+
 /// 识别结果类型
 enum SourceDetectType {
   legado,
@@ -17,6 +19,7 @@ enum SourceDetectType {
   veneraIndex,
   cssConfig,
   legadoJs,
+  tauriJs,
   unknown,
 }
 
@@ -229,6 +232,20 @@ class SourceDetect {
       }
     }
 
+    // Legado-Tauri JS 书源（// @name 头注释 + async 函数）
+    if (TauriSourceMeta.looksLike(t)) {
+      final meta = TauriSourceMeta.parse(t)!;
+      const typeNames = {
+        'novel': '小说',
+        'comic': '漫画',
+        'video': '视频',
+        'music': '音乐/有声',
+        'webpage': '网页',
+      };
+      return SourceDetectResult(SourceDetectType.tauriJs, 0.92, [meta],
+          '识别为 Legado-Tauri ${typeNames[meta.type] ?? ''}书源「${meta.name}」');
+    }
+
     // Venera JS 图源脚本
     if (RegExp(r'class\s+\w+\s+extends\s+ComicSource').hasMatch(t)) {
       return SourceDetectResult(SourceDetectType.venera, 0.95);
@@ -256,7 +273,7 @@ class SourceDetect {
     }
 
     return SourceDetectResult(SourceDetectType.unknown, 0.1, [],
-        '无法识别的书源格式，支持 Legado JSON / TVBox / Venera JS / CSS 选择器配置');
+        '无法识别的书源格式，支持 Legado JSON / Legado-Tauri JS / TVBox / Venera JS / CSS 选择器配置');
   }
 
   /// CSS 裸选择器配置 → Legado 书源 JSON（Legado 规则原生支持 CSS 选择器）

@@ -13,6 +13,7 @@ import 'package:html/parser.dart' as htmlparser;
 import 'package:venera/foundation/js_engine.dart';
 
 import 'book_source.dart';
+import 'tauri_engine.dart';
 
 class EvalContext {
   dom.Element? element; // CSS/XPath 上下文
@@ -865,6 +866,9 @@ var java = {
   /* ---------------- 流程：搜索 ---------------- */
 
   static Future<List<NovelBook>> search(BookSource src, String keyword) async {
+    if (src.isTauri) {
+      return TauriEngine.instance.search(src, keyword, 1, src.mediaType);
+    }
     if (src.searchUrl == null) {
       throw Exception('书源「${src.bookSourceName}」未配置搜索地址');
     }
@@ -931,6 +935,9 @@ var java = {
   /// 加载某个发现分类的列表（规则用 ruleExplore，字段与搜索一致）
   static Future<List<NovelBook>> explore(
       BookSource src, String url, {int page = 1}) async {
+    if (src.isTauri) {
+      return TauriEngine.instance.explore(src, url, page, src.mediaType);
+    }
     final req = buildRequest(url, '', page);
     final resp = await fetchText(req.url,
         method: req.method, headers: req.headers, body: req.body, src: src);
@@ -974,6 +981,9 @@ var java = {
   /* ---------------- 流程：书籍详情 ---------------- */
 
   static Future<NovelBook> getBookInfo(BookSource src, NovelBook book) async {
+    if (src.isTauri) {
+      return TauriEngine.instance.bookInfo(src, book);
+    }
     final resp = await fetchText(book.url, src: src);
     final ri = src.ruleBookInfo;
     String v(String? r) => decodeEntities(evalRule(r, resp, false).toString());
@@ -1000,6 +1010,10 @@ var java = {
 
   static Future<List<NovelChapter>> getToc(BookSource src, NovelBook book,
       {String? tocUrl}) async {
+    if (src.isTauri) {
+      return TauriEngine.instance.chapterList(src,
+          tocUrl ?? (book.tocUrl.isNotEmpty ? book.tocUrl : book.url));
+    }
     final rt = src.ruleToc;
     var url = tocUrl ?? (book.tocUrl.isNotEmpty ? book.tocUrl : book.url);
     final chapters = <NovelChapter>[];
@@ -1080,6 +1094,9 @@ var java = {
 
   static Future<NovelContent> getContent(
       BookSource src, NovelChapter chapter) async {
+    if (src.isTauri) {
+      return TauriEngine.instance.chapterContent(src, chapter, src.mediaType);
+    }
     final rc = src.ruleContent;
     if (!isNonEmpty(rc['content']?.toString())) {
       throw Exception('书源「${src.bookSourceName}」未配置正文规则');

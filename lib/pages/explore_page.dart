@@ -7,6 +7,7 @@ import 'package:venera/foundation/global_state.dart';
 import 'package:venera/foundation/res.dart';
 import 'package:venera/omnihub/novel/book_source.dart';
 import 'package:venera/omnihub/novel/legado_engine.dart';
+import 'package:venera/omnihub/novel/tauri_engine.dart';
 import 'package:venera/pages/comic_source_page.dart';
 import 'package:venera/pages/novel/novel_pages.dart';
 import 'package:venera/pages/settings/settings_page.dart';
@@ -632,9 +633,8 @@ class _NovelExploreTabState extends AutomaticGlobalState<_NovelExploreTab>
   @override
   bool get wantKeepAlive => true;
 
-  List<BookSource> get _exploreSources => BookSourceManager.instance.sources
-      .where((s) => s.enabled && (s.exploreUrl ?? '').isNotEmpty)
-      .toList();
+  List<BookSource> get _exploreSources =>
+      BookSourceManager.instance.exploreSources;
 
   @override
   void initState() {
@@ -650,13 +650,36 @@ class _NovelExploreTabState extends AutomaticGlobalState<_NovelExploreTab>
     });
   }
 
-  void _selectSource(BookSource s) {
+  Future<void> _selectSource(BookSource s) async {
     setState(() {
       _source = s;
-      _categories = LegadoEngine.exploreCategories(s);
+      _categories = [];
       _categoryIndex = 0;
       _books = [];
       _error = null;
+    });
+    if (s.isTauri) {
+      // Tauri 书源：分类来自 explore('GETALL')，无分类则直接探索
+      try {
+        final cats = await TauriEngine.instance.exploreCategories(s);
+        if (!mounted || _source != s) return;
+        setState(() {
+          _categories = cats.isNotEmpty
+              ? cats.map((c) => (c, c)).toList()
+              : [(s.bookSourceName, '')];
+        });
+        _loadCategory(0);
+      } catch (_) {
+        if (!mounted || _source != s) return;
+        setState(() {
+          _categories = [(s.bookSourceName, '')];
+        });
+        _loadCategory(0);
+      }
+      return;
+    }
+    setState(() {
+      _categories = LegadoEngine.exploreCategories(s);
     });
     if (_categories.isNotEmpty) {
       _loadCategory(0);
@@ -673,7 +696,10 @@ class _NovelExploreTabState extends AutomaticGlobalState<_NovelExploreTab>
       _books = [];
     });
     try {
-      final res = await LegadoEngine.explore(s, _categories[index].$2);
+      final res = s.isTauri
+          ? await TauriEngine.instance
+              .explore(s, _categories[index].$2, 1, s.mediaType)
+          : await LegadoEngine.explore(s, _categories[index].$2);
       if (mounted) {
         setState(() {
           _books = res;
@@ -706,11 +732,21 @@ class _NovelExploreTabState extends AutomaticGlobalState<_NovelExploreTab>
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            "暂无支持发现功能的书源。\n导入含 exploreUrl 的小说/漫画书源后，这里会展示对应内容。"
-                .tl,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: context.colorScheme.outline),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "你未添加书源".tl,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.colorScheme.outline),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () => context.to(() => const NovelSourcesPage()),
+                icon: const Icon(Icons.add),
+                label: Text("点击去添加".tl),
+              ),
+            ],
           ),
         ),
       );
@@ -728,9 +764,12 @@ class _NovelExploreTabState extends AutomaticGlobalState<_NovelExploreTab>
                   padding: const EdgeInsets.only(right: 6),
                   child: ChoiceChip(
                     avatar: Icon(
-                        s.mediaType == 'comic'
-                            ? Icons.image_outlined
-                            : Icons.menu_book_outlined,
+                        switch (s.mediaType) {
+                          'comic' => Icons.image_outlined,
+                          'video' => Icons.play_circle_outline,
+                          'music' => Icons.music_note_outlined,
+                          _ => Icons.menu_book_outlined,
+                        },
                         size: 14),
                     label:
                         Text(s.bookSourceName, style: const TextStyle(fontSize: 12)),

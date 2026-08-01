@@ -130,6 +130,7 @@ class AiProviders {
       base: 'https://api.xiaomimimo.com',
       keySlug: 'mimo',
       color: 0xFFFF6900,
+      iconLobe: 'mimo-color',
       iconSimple: 'xiaomi',
       models: ['mimo-v2.5', 'mimo-v2.5-pro'],
     ),
@@ -205,6 +206,7 @@ class AiProviders {
       base: 'https://api.skywork.ai',
       keySlug: 'kunlun',
       color: 0xFF6D28D9,
+      iconLobe: 'skywork-color',
       models: ['skywork-math', 'skywork-13b'],
     ),
     AiProvider(
@@ -213,6 +215,7 @@ class AiProviders {
       base: 'https://api.sensenova.cn',
       keySlug: 'sensetime',
       color: 0xFF0052CC,
+      iconLobe: 'sensetime-color',
       iconSimple: 'sensetime',
       models: ['SenseChat-5', 'SenseChat-128K'],
     ),
@@ -232,6 +235,7 @@ class AiProviders {
       base: 'https://api.siliconflow.cn',
       keySlug: 'siliconflow',
       color: 0xFF7B61FF,
+      iconLobe: 'siliconcloud-color',
       models: ['Qwen/Qwen2.5-72B-Instruct', 'deepseek-ai/DeepSeek-V3', 'Pro/deepseek-ai/DeepSeek-R1'],
     ),
     AiProvider(

@@ -111,11 +111,33 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
     String? error;
     bool verifying = false;
     bool resending = false;
+    // 60 秒重发倒计时，归零后才可再次点击
+    int cooldown = 60;
+    Timer? cooldownTimer;
+    void startCooldown(void Function(void Function()) setDlg) {
+      cooldownTimer?.cancel();
+      cooldown = 60;
+      cooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+        if (cooldown <= 1) {
+          t.cancel();
+          setDlg(() => cooldown = 0);
+        } else {
+          setDlg(() => cooldown--);
+        }
+      });
+    }
+
+    var cooldownStarted = false;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
+        builder: (ctx, setDlg) {
+          if (!cooldownStarted) {
+            cooldownStarted = true;
+            startCooldown(setDlg);
+          }
+          return AlertDialog(
           title: Text("邮箱验证".tl),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -134,7 +156,7 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
                 ),
               ),
               TextButton(
-                onPressed: (resending || verifying)
+                onPressed: (resending || verifying || cooldown > 0)
                     ? null
                     : () async {
                         setDlg(() => resending = true);
@@ -144,6 +166,7 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
                             resending = false;
                             error = null;
                           });
+                          startCooldown(setDlg);
                           if (mounted) {
                             setState(() => _message = '验证码已重新发送');
                           }
@@ -160,7 +183,9 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
                         width: 14,
                         height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : Text("重新发送".tl),
+                    : Text(cooldown > 0
+                        ? '${"重新发送".tl}（${cooldown}s）'
+                        : "重新发送".tl),
               ),
             ],
           ),
@@ -203,9 +228,10 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
                   : Text("验证并登录".tl),
             ),
           ],
-        ),
+          );
+        },
       ),
-    );
+    ).then((_) => cooldownTimer?.cancel());
   }
 
   Future<void> _syncBookshelf() async {

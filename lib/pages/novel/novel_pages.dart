@@ -15,7 +15,9 @@ import 'package:venera/omnihub/novel/book_source.dart';
 import 'package:venera/omnihub/novel/legado_engine.dart';
 import 'package:venera/omnihub/novel/local_import.dart';
 import 'package:venera/omnihub/novel/source_detect.dart';
+import 'package:venera/omnihub/novel/tauri_engine.dart';
 import 'package:venera/omnihub/video/tvbox.dart';
+import 'package:venera/pages/video/video_pages.dart';
 import 'package:venera/omnihub/stats/reading_stats.dart';
 import 'package:venera/omnihub/tts/edge_tts.dart';
 import 'package:venera/omnihub/tts/tts_service.dart';
@@ -231,6 +233,16 @@ class NovelSourcesPage extends StatefulWidget {
                         ? "导入 @c 个书源（CSS 配置已转换）".tlParams({'c': n})
                         : "没有可导入的内容".tl) +
                     (skip > 0 ? '，跳过 $skip 个重复' : ''));
+          }
+          return;
+        case SourceDetectType.tauriJs:
+          final (n, skip) =
+              await BookSourceManager.instance.importTauri(text.trim());
+          if (context.mounted) {
+            context.showMessage(
+                message: n > 0
+                    ? (d.message.isNotEmpty ? d.message : '已导入 Tauri 书源')
+                    : '书源已存在，无需重复导入');
           }
           return;
         case SourceDetectType.tvbox:
@@ -478,10 +490,21 @@ class _NovelSourcesPageState extends State<NovelSourcesPage> {
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(
-                  "还没有书源。\n点右上角导入「开源阅读(Legado)」格式的书源 JSON。".tl,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.colorScheme.outline),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "你未添加书源".tl,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: context.colorScheme.outline),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: _importMenu,
+                      icon: const Icon(Icons.add),
+                      label: Text("点击去添加".tl),
+                    ),
+                  ],
                 ),
               ),
             )
@@ -1036,10 +1059,20 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
           Expanded(
             child: _error == 'no-sources'
                 ? Center(
-                    child: TextButton(
-                      onPressed: () =>
-                          context.to(() => const NovelSourcesPage()),
-                      child: Text("没有启用的书源，点这里去导入".tl),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text("你未添加书源".tl,
+                            style: TextStyle(
+                                color: context.colorScheme.outline)),
+                        const SizedBox(height: 12),
+                        FilledButton.tonalIcon(
+                          onPressed: () =>
+                              context.to(() => const NovelSourcesPage()),
+                          icon: const Icon(Icons.add),
+                          label: Text("点击去添加".tl),
+                        ),
+                      ],
                     ),
                   )
                 : _results.isEmpty
@@ -1529,6 +1562,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           _loading = false;
         });
         NovelShelf.instance.setProgress(widget.book.url, _index);
+        if (c.type == 'video') {
+          _playVideo(c);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1538,6 +1574,26 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         });
       }
     }
+  }
+
+  /// 视频/音乐章节：解析播放地址并跳转播放器
+  Future<void> _playVideo(NovelContent c) async {
+    var url = c.text.trim();
+    if (c.isM3u8Content) {
+      try {
+        final dir = await Directory.systemTemp.createTemp('omni_m3u8');
+        final f = File('${dir.path}/play.m3u8');
+        await f.writeAsString(url);
+        url = f.path;
+      } catch (_) {}
+    }
+    if (url.isEmpty) {
+      context.showMessage(message: "未解析到播放地址".tl);
+      return;
+    }
+    if (!mounted) return;
+    context.to(() => VideoPlayerPage(
+        title: widget.toc[_index].name, url: url, headers: c.headers));
   }
 
   void _go(int dir) {
