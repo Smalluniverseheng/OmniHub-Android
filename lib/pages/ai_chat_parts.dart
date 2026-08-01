@@ -347,13 +347,14 @@ extension _AiHomeUi on AiHomePageState {
                 label: Text(r, style: const TextStyle(fontSize: 12)),
                 selected: curRatio == r,
                 visualDensity: VisualDensity.compact,
-                onSelected: (_) => setState(() {
+                onSelected: (_) {
                   if (isVideo) {
                     _videoRatio = r;
                   } else {
                     _mediaRatio = r;
                   }
-                }),
+                  refresh();
+                },
               ),
             ),
           if (isVideo) ...[
@@ -370,7 +371,10 @@ extension _AiHomeUi on AiHomePageState {
                   label: Text('${d}s', style: const TextStyle(fontSize: 12)),
                   selected: _videoDuration == d,
                   visualDensity: VisualDensity.compact,
-                  onSelected: (_) => setState(() => _videoDuration = d),
+                  onSelected: (_) {
+                    _videoDuration = d;
+                    refresh();
+                  },
                 ),
               ),
           ],
