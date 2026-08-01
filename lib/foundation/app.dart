@@ -14,10 +14,10 @@ export "context.dart";
 
 class _App {
   /// 应用版本号 —— 发版时必须与 pubspec.yaml 的 version 保持一致
-  final version = "2.0.0";
+  final version = "2.1.0";
 
   /// 构建号 —— 与 pubspec.yaml version 的 +build 部分一致，用于应用内更新比较
-  final buildNumber = 234;
+  final buildNumber = 235;
 
   bool get isAndroid => Platform.isAndroid;
 
