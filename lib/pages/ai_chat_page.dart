@@ -144,7 +144,6 @@ class AiHomePageState extends State<AiChatListPage>
     _scroll.dispose();
     _inputFocus.dispose();
     _cancel?.cancel();
-    _soundLevelSub?.cancel();
     _speech.stop();
     _drawerCtrl.dispose();
     super.dispose();
@@ -577,18 +576,17 @@ class AiHomePageState extends State<AiChatListPage>
       _voiceCancel = false;
       _voiceLevels.clear();
     });
-    // 音量流驱动波形动画（v7：soundLevelChange Stream）
-    _soundLevelSub?.cancel();
-    _soundLevelSub = _speech.soundLevelChange.listen((level) {
-      // level 大致 [-2, 10]，归一化到 [0, 1]
-      final v = ((level + 2) / 12).clamp(0.0, 1.0);
-      _voiceLevels.add(v);
-      if (_voiceLevels.length > 64) _voiceLevels.removeAt(0);
-      if (mounted) setState(() {});
-    });
     await _speech.listen(
       onResult: (r) {
         _voiceText = r.recognizedWords;
+        if (mounted) setState(() {});
+      },
+      // 音量回调驱动波形动画
+      onSoundLevelChange: (level) {
+        // level 大致 [-2, 10]，归一化到 [0, 1]
+        final v = ((level + 2) / 12).clamp(0.0, 1.0);
+        _voiceLevels.add(v);
+        if (_voiceLevels.length > 64) _voiceLevels.removeAt(0);
         if (mounted) setState(() {});
       },
       localeId: 'zh_CN',
