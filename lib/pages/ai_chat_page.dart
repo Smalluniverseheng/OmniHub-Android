@@ -21,6 +21,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/omnihub/ai/ai_api.dart';
@@ -29,10 +30,12 @@ import 'package:venera/omnihub/ai/ai_media_models.dart';
 import 'package:venera/omnihub/ai/ai_models.dart';
 import 'package:venera/omnihub/ai/ai_providers.dart';
 import 'package:venera/omnihub/ai/ai_store.dart';
+import 'package:venera/omnihub/ai/ai_websearch.dart';
 import 'package:venera/omnihub/ai/annotations.dart';
 import 'package:venera/omnihub/ai/brand_icon.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
 import 'package:venera/pages/settings/settings_page.dart';
+import 'package:venera/pages/video/video_pages.dart';
 import 'package:venera/utils/translations.dart';
 
 part 'ai_chat_parts.dart';
@@ -80,6 +83,11 @@ class AiHomePageState extends State<AiChatListPage>
 
   /// 联网搜索：auto / off
   String get _webSearch => appdata.settings['aiWebSearch']?.toString() ?? 'auto';
+
+  /// 生图比例 / 生视频比例与时长
+  String _mediaRatio = '1:1';
+  String _videoRatio = '16:9';
+  String _videoDuration = '5';
 
   bool get _hasText => _input.text.trim().isNotEmpty;
 
@@ -234,6 +242,21 @@ class AiHomePageState extends State<AiChatListPage>
     await _sendChat(provider, key, model);
   }
 
+  /// 若配置了独立联网搜索 API，先检索并注入上下文
+  Future<List<AiMessage>> _messagesWithSearch() async {
+    final base = _buildRequestMessages();
+    if (_webSearch != 'auto' || !AiWebSearch.configured) return base;
+    final lastUser = base.lastWhere((m) => m.role == 'user',
+        orElse: () => const AiMessage('user', ''));
+    if (lastUser.content.isEmpty) return base;
+    final results = await AiWebSearch.search(lastUser.content);
+    if (results.isEmpty) return base;
+    return [
+      ...base,
+      AiMessage('system', AiWebSearch.digest(results)),
+    ];
+  }
+
   /// 文本对话流式发送
   Future<void> _sendChat(
       AiProvider provider, String key, String model) async {
@@ -247,7 +270,7 @@ class AiHomePageState extends State<AiChatListPage>
         provider: provider,
         apiKey: key,
         model: model,
-        messages: _buildRequestMessages(),
+        messages: await _messagesWithSearch(),
         cancelToken: _cancel,
         webSearch: _webSearch == 'auto',
         onToken: (token) {
@@ -281,12 +304,20 @@ class AiHomePageState extends State<AiChatListPage>
     final store = AiStore.instance;
     try {
       if (media.type == 'image') {
+        const sizeMap = {
+          '1:1': '1024x1024',
+          '16:9': '1280x720',
+          '9:16': '720x1280',
+          '4:3': '1152x864',
+          '3:4': '864x1152',
+        };
         final res = await AiMediaApi.generateImage(
           provider: provider,
           apiKey: key,
           model: media.id,
           prompt: prompt,
           customBase: store.customBase,
+          size: sizeMap[_mediaRatio] ?? '1024x1024',
         );
         final saved = <Map<String, String>>[];
         var i = 0;
@@ -320,6 +351,8 @@ class AiHomePageState extends State<AiChatListPage>
           model: media.id,
           prompt: prompt,
           customBase: store.customBase,
+          ratio: _videoRatio,
+          duration: _videoDuration,
         );
         setState(() {
           _conv!.messages
@@ -558,24 +591,12 @@ class AiHomePageState extends State<AiChatListPage>
       },
       child: Scaffold(
         resizeToAvoidBottomInset: true,
-        body: Stack(
-          children: [
-            // 主对话区（抽屉打开时右移 1/5 的剩余部分）
-            _buildChatBody(context),
-            // 遮罩：抽屉开着时点击右侧 1/5 返回
-            if (_drawerT > 0)
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: _closeDrawer,
-                  child: Container(
-                    color: Colors.black.withValues(alpha: 0.35 * _drawerT),
-                  ),
-                ),
-              ),
-            // 历史抽屉（左 4/5）
-            if (_drawerT > 0)
+        body: ClipRect(
+          child: Stack(
+            children: [
+              // 历史抽屉（底层，固定左 4/5）
               Positioned(
-                left: -drawerWidth * (1 - _drawerT),
+                left: 0,
                 top: 0,
                 bottom: 0,
                 width: drawerWidth,
@@ -585,7 +606,32 @@ class AiHomePageState extends State<AiChatListPage>
                   onNew: _newConversation,
                 ),
               ),
-          ],
+              // 主对话区：整页左右平移
+              Positioned.fill(
+                child: Transform.translate(
+                  offset: Offset(drawerWidth * _drawerT, 0),
+                  child: Container(
+                    color: context.colorScheme.surface,
+                    child: _buildChatBody(context),
+                  ),
+                ),
+              ),
+              // 遮罩：抽屉开着时点击对话区（右 1/5）返回
+              if (_drawerT > 0)
+                Positioned.fill(
+                  child: Transform.translate(
+                    offset: Offset(drawerWidth * _drawerT, 0),
+                    child: GestureDetector(
+                      onTap: _closeDrawer,
+                      child: Container(
+                        color:
+                            Colors.black.withValues(alpha: 0.35 * _drawerT),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -133,23 +133,34 @@ extension _AiHomeUi on AiHomePageState {
         errorBuilder: (_, __, ___) => const Icon(Icons.broken_image));
   }
 
-  /// 视频消息：链接可点击复制
+  /// 视频消息：点击直接播放，长按复制链接
   Widget _buildVideoContent(AiMessage m) {
     final url = m.content;
     if (url.startsWith('http')) {
       return InkWell(
-        onTap: () {
+        onTap: () => context
+            .to(() => VideoPlayerPage(title: 'AI 生成视频', url: url)),
+        onLongPress: () {
           Clipboard.setData(ClipboardData(text: url));
           context.showMessage(message: '视频链接已复制');
         },
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.play_circle_outline,
-                color: context.colorScheme.primary),
-            const SizedBox(width: 6),
-            const Flexible(child: Text('视频已生成，点击复制链接')),
-          ],
+        child: Container(
+          width: 220,
+          height: 120,
+          decoration: BoxDecoration(
+            color: Colors.black87,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.play_circle_fill,
+                  size: 44, color: context.colorScheme.primary),
+              const SizedBox(height: 6),
+              const Text('点击播放生成视频',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+            ],
+          ),
         ),
       );
     }
@@ -308,6 +319,66 @@ extension _AiHomeUi on AiHomePageState {
 
   // ---------------- 输入栏 ----------------
 
+  /// 生图/生视频参数栏：选中媒体模型时显示（比例 / 时长）
+  Widget _buildMediaOptionsBar() {
+    final media = _currentMediaModel;
+    if (media == null) return const SizedBox.shrink();
+    final isVideo = media.type == 'video';
+    final ratios = isVideo
+        ? const ['16:9', '9:16', '1:1']
+        : const ['1:1', '16:9', '9:16', '4:3', '3:4'];
+    final curRatio = isVideo ? _videoRatio : _mediaRatio;
+    return SizedBox(
+      height: 38,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(bottom: 4),
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8, top: 6),
+            child: Text(isVideo ? '视频比例' : '图片比例',
+                style:
+                    TextStyle(fontSize: 12, color: context.colorScheme.outline)),
+          ),
+          for (final r in ratios)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(r, style: const TextStyle(fontSize: 12)),
+                selected: curRatio == r,
+                visualDensity: VisualDensity.compact,
+                onSelected: (_) => setState(() {
+                  if (isVideo) {
+                    _videoRatio = r;
+                  } else {
+                    _mediaRatio = r;
+                  }
+                }),
+              ),
+            ),
+          if (isVideo) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 8, left: 8, top: 6),
+              child: Text('时长',
+                  style: TextStyle(
+                      fontSize: 12, color: context.colorScheme.outline)),
+            ),
+            for (final d in const ['5', '10'])
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: ChoiceChip(
+                  label: Text('${d}s', style: const TextStyle(fontSize: 12)),
+                  selected: _videoDuration == d,
+                  visualDensity: VisualDensity.compact,
+                  onSelected: (_) => setState(() => _videoDuration = d),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildInputArea() {
     return SafeArea(
       top: false,
@@ -315,6 +386,7 @@ extension _AiHomeUi on AiHomePageState {
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
         child: Column(
           children: [
+            if (_currentMediaModel != null) _buildMediaOptionsBar(),
             if (_pendingAttachments.isNotEmpty) _buildPendingChips(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -480,19 +552,17 @@ extension _AiHomeUi on AiHomePageState {
             crossAxisCount: 4,
             mainAxisSpacing: 12,
             children: [
-              if (vision)
-                _plusItem(ctx, Icons.photo_camera_outlined, '拍照', () {
-                  _pickImage(ImageSource.camera);
-                }),
-              if (vision)
-                _plusItem(ctx, Icons.photo_library_outlined, '照片', () {
-                  _pickImage(ImageSource.gallery);
-                }),
-              if (vision)
-                _plusItem(ctx, Icons.insert_drive_file_outlined, '本地文件',
-                    () {
-                  _pickFile();
-                }),
+              // 不支持的入口置灰展示，点击提示「当前模型不支持」
+              _plusItem(ctx, Icons.photo_camera_outlined, '拍照', () {
+                _pickImage(ImageSource.camera);
+              }, enabled: vision),
+              _plusItem(ctx, Icons.photo_library_outlined, '照片', () {
+                _pickImage(ImageSource.gallery);
+              }, enabled: vision),
+              _plusItem(ctx, Icons.insert_drive_file_outlined, '本地文件',
+                  () {
+                _pickFile();
+              }, enabled: vision),
               _plusItem(ctx, Icons.bolt_outlined, '常用语', () async {
                 final content = await Navigator.of(context, rootNavigator: true)
                     .push<String>(MaterialPageRoute(
@@ -515,58 +585,112 @@ extension _AiHomeUi on AiHomePageState {
   }
 
   Widget _plusItem(
-      BuildContext sheetCtx, IconData icon, String label, VoidCallback onTap) {
+      BuildContext sheetCtx, IconData icon, String label, VoidCallback onTap,
+      {bool enabled = true}) {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () {
+        if (!enabled) {
+          context.showMessage(message: "当前模型不支持".tl);
+          return;
+        }
         Navigator.pop(sheetCtx);
         onTap();
       },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: context.colorScheme.surfaceContainerHighest,
-            child: Icon(icon, color: context.colorScheme.onSurfaceVariant),
-          ),
-          const SizedBox(height: 6),
-          Text(label, style: const TextStyle(fontSize: 12)),
-        ],
+      child: Opacity(
+        opacity: enabled ? 1 : 0.38,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 26,
+              backgroundColor: context.colorScheme.surfaceContainerHighest,
+              child: Icon(icon, color: context.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 6),
+            Text(label, style: const TextStyle(fontSize: 12)),
+          ],
+        ),
       ),
     );
   }
 
-  /// 联网搜索小浮窗：自动 / 关闭
+  /// 联网搜索设置：开关 + 搜索来源（厂商内置 / 独立搜索 API）
   void _showWebSearchPopup() {
     var mode = _webSearch;
+    var provider = AiWebSearch.provider;
+    final keyController =
+        TextEditingController(text: AiWebSearch.apiKey);
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) => AlertDialog(
           title: const Text('联网搜索'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<String>(
-                value: 'auto',
-                groupValue: mode,
-                title: const Text('自动'),
-                subtitle: const Text('对话时自动联网检索'),
-                onChanged: (v) => setDlg(() => mode = v!),
-              ),
-              RadioListTile<String>(
-                value: 'off',
-                groupValue: mode,
-                title: const Text('关闭'),
-                onChanged: (v) => setDlg(() => mode = v!),
-              ),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RadioListTile<String>(
+                  value: 'auto',
+                  groupValue: mode,
+                  title: const Text('自动'),
+                  subtitle: const Text('对话时自动联网检索'),
+                  onChanged: (v) => setDlg(() => mode = v!),
+                ),
+                RadioListTile<String>(
+                  value: 'off',
+                  groupValue: mode,
+                  title: const Text('关闭'),
+                  onChanged: (v) => setDlg(() => mode = v!),
+                ),
+                const Divider(),
+                Text('搜索来源',
+                    style: TextStyle(
+                        fontSize: 13, color: ctx.colorScheme.primary)),
+                RadioListTile<String>(
+                  value: 'builtin',
+                  groupValue: provider,
+                  title: const Text('厂商内置'),
+                  subtitle: const Text('使用模型厂商自带的联网能力'),
+                  onChanged: (v) => setDlg(() => provider = v!),
+                ),
+                for (final e in AiWebSearch.providers.entries)
+                  RadioListTile<String>(
+                    value: e.key,
+                    groupValue: provider,
+                    title: Text(e.value.$1),
+                    onChanged: (v) => setDlg(() => provider = v!),
+                  ),
+                if (provider != 'builtin') ...[
+                  TextField(
+                    controller: keyController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: '搜索 API Key',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact),
+                    onPressed: () => launchUrlString(
+                        AiWebSearch.providers[provider]!.$2),
+                    icon: const Icon(Icons.open_in_new, size: 14),
+                    label: const Text('去申请搜索 Key',
+                        style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+              ],
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () {
                 appdata.settings['aiWebSearch'] = mode;
+                appdata.settings['aiSearchProvider'] = provider;
+                appdata.settings['aiSearchKey'] = keyController.text.trim();
                 appdata.saveData();
                 refresh();
                 Navigator.pop(ctx);
@@ -630,14 +754,38 @@ extension _AiModelPicker on AiHomePageState {
           currentId: _currentModelId,
           onPick: (slug, modelId) {
             final store = AiStore.instance;
+            final changed = _currentModelId != modelId;
             store.select(slug, modelId);
-            if (_conv != null) {
-              _conv!.providerSlug = slug;
-              _conv!.model = modelId;
-              store.updateConversation(_conv!);
+            _conv ??= store.newConversation();
+            _conv!.providerSlug = slug;
+            _conv!.model = modelId;
+            // 切换模型：插入模型简介问候语
+            if (changed) {
+              final catalog = AiModels.get(modelId);
+              AiMediaModel? media;
+              for (final m in kAiMediaModels) {
+                if (m.id == modelId) media = m;
+              }
+              final name = catalog?.name ?? media?.name ?? modelId;
+              final desc = catalog?.desc ?? media?.desc;
+              final caps = <String>[
+                if (catalog?.vision == true) '看图识图',
+                if (catalog?.thinking == true) '深度思考',
+                if ((catalog?.ctx ?? 0) >= 256) '超长上下文',
+                if (media?.type == 'image') '生成图片',
+                if (media?.type == 'video') '生成视频',
+              ];
+              var greet = '你好，我是$name。';
+              if (desc != null && desc.isNotEmpty) greet += desc;
+              greet += caps.isEmpty
+                  ? '我能帮你回答问题、写作、翻译、编程，有什么想聊的都可以问我。'
+                  : '我能帮你${caps.join('、')}，开始吧。';
+              _conv!.messages.add(AiMessage('assistant', greet));
             }
+            store.updateConversation(_conv!);
             refresh();
             Navigator.pop(ctx);
+            _scrollToBottom();
           },
         ),
       ),

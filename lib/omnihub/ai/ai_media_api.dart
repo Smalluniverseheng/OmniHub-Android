@@ -113,6 +113,8 @@ class AiMediaApi {
     required String model,
     required String prompt,
     String? customBase,
+    String ratio = '16:9',
+    String duration = '5',
   }) async {
     final base = _base(provider, customBase);
     if (base.isEmpty) throw AiApiException('未配置 API 地址');
@@ -126,7 +128,7 @@ class AiMediaApi {
             'content': [
               {
                 'type': 'text',
-                'text': '$prompt --ratio 16:9',
+                'text': '$prompt --ratio $ratio --dur $duration',
               }
             ],
           },
