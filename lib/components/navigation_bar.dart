@@ -291,12 +291,23 @@ class NaviPaneState extends State<NaviPane>
   }
 
   Widget buildBottom() {
+    final withShadow = appdata.settings['navbarShadow'] == true;
     return Material(
       textStyle: Theme.of(context).textTheme.labelSmall,
       elevation: 0,
       child: Container(
         height: _kBottomBarHeight,
         decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          boxShadow: withShadow
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ]
+              : null,
           border: Border(
             top: BorderSide(
               color: Theme.of(context).colorScheme.outlineVariant,

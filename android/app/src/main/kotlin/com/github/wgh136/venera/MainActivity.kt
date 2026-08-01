@@ -158,6 +158,34 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             })
 
+        val iconChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "omnihub/app_icon")
+        iconChannel.setMethodCallHandler { call, res ->
+            if (call.method == "setIcon") {
+                val alias = call.argument<String>("alias") ?: "default"
+                try {
+                    val pm = packageManager
+                    val pkg = packageName
+                    val mainComp = componentName
+                    val planetComp = android.content.ComponentName(pkg, "$pkg.MainActivityPlanet")
+                    pm.setComponentEnabledSetting(
+                        mainComp,
+                        if (alias == "planet") android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                        else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP
+                    )
+                    pm.setComponentEnabledSetting(
+                        planetComp,
+                        if (alias == "planet") android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                        else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        android.content.pm.PackageManager.DONT_KILL_APP
+                    )
+                    res.success(true)
+                } catch (e: Exception) {
+                    res.error("icon", e.message, null)
+                }
+            } else res.notImplemented()
+        }
+
         val storageChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "venera/storage")
         storageChannel.setMethodCallHandler { _, res ->
             requestStoragePermission { result ->

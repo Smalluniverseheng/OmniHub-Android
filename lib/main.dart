@@ -138,6 +138,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       'blue' => Colors.blue,
       'yellow' => Colors.yellow,
       'cyan' => Colors.cyan,
+      'custom' => Color(
+          (appdata.settings['customColor'] as num?)?.toInt() ?? 0xFF6366F1),
       _ => Colors.blue,
     };
   }
@@ -246,6 +248,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             );
           };
           if (widget != null) {
+            // 全局字体缩放（主题设置-字体大小）
+            final fontScale =
+                (appdata.settings['fontScale'] as num?)?.toDouble() ?? 1.0;
+            if (fontScale != 1.0) {
+              widget = MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(fontScale),
+                ),
+                child: widget,
+              );
+            }
+
             /// 如果无法检测到状态栏高度设定指定高度
             /// https://github.com/flutter/flutter/issues/161086
             var isPaddingCheckError =
