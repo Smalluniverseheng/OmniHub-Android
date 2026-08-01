@@ -5,6 +5,7 @@
 /// 云端同步仅同步非敏感的选中项配置）。
 library ai_store;
 
+import 'package:venera/omnihub/sync/user_data_sync.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -174,6 +175,7 @@ class AiStore extends ChangeNotifier {
         'prompts': prompts.map((p) => p.toJson()).toList(),
       }));
     } catch (_) {}
+    UserDataSync.scheduleApiSync();
   }
 
   String getKey(String slug) => keys[slug] ?? '';

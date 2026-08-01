@@ -8,6 +8,7 @@
 /// 播放地址取 vod_play_url（"集名$URL#..." 格式），一般为 m3u8/mp4。
 library tvbox;
 
+import 'package:venera/omnihub/sync/user_data_sync.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -122,6 +123,7 @@ class TvboxSourceManager {
   Future<void> save() async {
     final f = await _file();
     await f.writeAsString(jsonEncode(sites.map((e) => e.toJson()).toList()));
+    UserDataSync.scheduleSourcesSync();
   }
 
   List<TvboxSite> get enabledSources =>

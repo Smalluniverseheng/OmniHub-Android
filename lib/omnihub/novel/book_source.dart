@@ -9,6 +9,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:venera/omnihub/sync/user_data_sync.dart';
+
 import 'tauri_engine.dart' show TauriSourceMeta;
 
 class BookSource {
@@ -251,6 +253,7 @@ class BookSourceManager extends ChangeNotifier {
     final f = await _ensureFile();
     await f.writeAsString(
         jsonEncode(sources.map((e) => e.toJson()).toList()));
+    UserDataSync.scheduleSourcesSync();
   }
 
   List<BookSource> get enabledSources => sources

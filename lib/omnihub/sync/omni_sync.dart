@@ -16,6 +16,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'user_data_sync.dart';
+
 class OmniSyncConfig {
   static const String supabaseUrl = 'https://mxvxlgjzeboktufumxbp.supabase.co';
   // 与网页版相同的 publishable key（公开密钥，安全性由 RLS 保证）
@@ -287,6 +289,8 @@ class OmniSync extends ChangeNotifier {
       _session = _parseAuthResponse(res.data as Map<String, dynamic>);
       await _saveSession();
       notifyListeners();
+      // 登录后从云端补齐 API 配置与书源
+      UserDataSync.pullAll();
     } on DioException catch (e) {
       // 已注册但未验证邮箱 → 抛特殊标记，UI 弹验证码框
       final d = e.response?.data;
