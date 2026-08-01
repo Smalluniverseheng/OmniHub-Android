@@ -217,7 +217,7 @@ Future<void> downloadAndInstallUpdate(AppUpdateInfo info) async {
     barrierDismissible: false,
     builder: (dialogContext) {
       return ContentDialog(
-        title: Text("正在下载更新".tl),
+        title: "正在下载更新".tl,
         content: ValueListenableBuilder<double>(
           valueListenable: progress,
           builder: (_, v, __) => Column(
@@ -270,7 +270,7 @@ Future<void> downloadAndInstallUpdate(AppUpdateInfo info) async {
       context: App.rootContext,
       builder: (context) {
         return ContentDialog(
-          title: Text("下载完成".tl),
+          title: "下载完成".tl,
           content: Text("新版本 V@v 已下载完成，是否立即安装？"
                   .tlParams({'v': info.version}))
               .paddingHorizontal(16),
