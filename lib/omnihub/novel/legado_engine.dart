@@ -908,6 +908,69 @@ var java = {
     return out;
   }
 
+  /* ---------------- 流程：发现（explore） ---------------- */
+
+  /// 解析 exploreUrl 分类列表：每行/&& 分隔「名称::URL」
+  static List<(String, String)> exploreCategories(BookSource src) {
+    final raw = trim(src.exploreUrl ?? '');
+    if (raw.isEmpty) return [];
+    final out = <(String, String)>[];
+    for (final part in raw.split(RegExp(r'\n|&&'))) {
+      final p = trim(part);
+      if (p.isEmpty) continue;
+      final idx = p.indexOf('::');
+      if (idx > 0) {
+        out.add((trim(p.substring(0, idx)), trim(p.substring(idx + 2))));
+      } else {
+        out.add((src.bookSourceName, p));
+      }
+    }
+    return out;
+  }
+
+  /// 加载某个发现分类的列表（规则用 ruleExplore，字段与搜索一致）
+  static Future<List<NovelBook>> explore(
+      BookSource src, String url, {int page = 1}) async {
+    final req = buildRequest(url, '', page);
+    final resp = await fetchText(req.url,
+        method: req.method, headers: req.headers, body: req.body, src: src);
+    final re = src.ruleExplore.isNotEmpty ? src.ruleExplore : src.ruleSearch;
+    final items = evalItems(re['bookList']?.toString(), resp);
+    final out = <NovelBook>[];
+    for (final ictx in items) {
+      try {
+        var name = evalRule(re['name'], ictx, false).toString();
+        var bookUrl = evalRule(re['bookUrl'], ictx, false).toString();
+        if (bookUrl.isEmpty &&
+            ictx.text != null &&
+            RegExp(r'^https?:', caseSensitive: false)
+                .hasMatch(trim(ictx.text))) {
+          bookUrl = trim(ictx.text);
+        }
+        if (name.isEmpty && ictx.element != null) {
+          name = trim(ictx.element!.text);
+        }
+        if (name.isEmpty) continue;
+        out.add(NovelBook(
+          name: decodeEntities(name),
+          author: decodeEntities(evalRule(re['author'], ictx, false).toString()),
+          intro: decodeEntities(evalRule(re['intro'], ictx, false).toString()),
+          cover:
+              absUrl(evalRule(re['coverUrl'], ictx, false).toString(), req.url),
+          lastChapter: decodeEntities(
+              evalRule(re['lastChapter'], ictx, false).toString()),
+          url: absUrl(bookUrl, req.url),
+          sourceName: src.bookSourceName,
+          mediaType: src.mediaType,
+          wordCount: decodeEntities(
+              evalRule(re['wordCount'], ictx, false).toString()),
+          kind: decodeEntities(evalRule(re['kind'], ictx, false).toString()),
+        ));
+      } catch (_) {}
+    }
+    return out;
+  }
+
   /* ---------------- 流程：书籍详情 ---------------- */
 
   static Future<NovelBook> getBookInfo(BookSource src, NovelBook book) async {

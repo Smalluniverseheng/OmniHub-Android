@@ -13,10 +13,13 @@ class BookSource {
   String bookSourceName;
   String bookSourceUrl;
   int bookSourceType; // 0 文本 2 图片(漫画)
+  String bookSourceGroup; // 书源分组（legado bookSourceGroup）
   bool enabled;
   String? searchUrl;
+  String? exploreUrl;
   String? header;
   Map<String, dynamic> ruleSearch;
+  Map<String, dynamic> ruleExplore;
   Map<String, dynamic> ruleBookInfo;
   Map<String, dynamic> ruleToc;
   Map<String, dynamic> ruleContent;
@@ -26,15 +29,19 @@ class BookSource {
     required this.bookSourceName,
     required this.bookSourceUrl,
     this.bookSourceType = 0,
+    this.bookSourceGroup = '',
     this.enabled = true,
     this.searchUrl,
+    this.exploreUrl,
     this.header,
     Map<String, dynamic>? ruleSearch,
+    Map<String, dynamic>? ruleExplore,
     Map<String, dynamic>? ruleBookInfo,
     Map<String, dynamic>? ruleToc,
     Map<String, dynamic>? ruleContent,
     Map<String, dynamic>? raw,
   })  : ruleSearch = ruleSearch ?? {},
+        ruleExplore = ruleExplore ?? {},
         ruleBookInfo = ruleBookInfo ?? {},
         ruleToc = ruleToc ?? {},
         ruleContent = ruleContent ?? {},
@@ -49,10 +56,13 @@ class BookSource {
         bookSourceName: (j['bookSourceName'] ?? '').toString(),
         bookSourceUrl: (j['bookSourceUrl'] ?? '').toString(),
         bookSourceType: (j['bookSourceType'] as num?)?.toInt() ?? 0,
+        bookSourceGroup: (j['bookSourceGroup'] ?? '').toString(),
         enabled: j['enabled'] != false,
         searchUrl: j['searchUrl']?.toString(),
+        exploreUrl: j['exploreUrl']?.toString(),
         header: j['header']?.toString(),
         ruleSearch: _map(j['ruleSearch']),
+        ruleExplore: _map(j['ruleExplore']),
         ruleBookInfo: _map(j['ruleBookInfo']),
         ruleToc: _map(j['ruleToc']),
         ruleContent: _map(j['ruleContent']),
@@ -63,10 +73,13 @@ class BookSource {
         'bookSourceName': bookSourceName,
         'bookSourceUrl': bookSourceUrl,
         'bookSourceType': bookSourceType,
+        if (bookSourceGroup.isNotEmpty) 'bookSourceGroup': bookSourceGroup,
         'enabled': enabled,
         if (searchUrl != null) 'searchUrl': searchUrl,
+        if (exploreUrl != null) 'exploreUrl': exploreUrl,
         if (header != null) 'header': header,
         'ruleSearch': ruleSearch,
+        'ruleExplore': ruleExplore,
         'ruleBookInfo': ruleBookInfo,
         'ruleToc': ruleToc,
         'ruleContent': ruleContent,
@@ -215,11 +228,15 @@ class BookSourceManager extends ChangeNotifier {
   List<BookSource> get enabledSources =>
       sources.where((e) => e.enabled && e.searchUrl != null).toList();
 
-  /// 导入书源 JSON（支持单对象或数组），返回导入数量
-  Future<int> importJson(String text) async {
+  /// 导入书源 JSON（支持单对象或数组）。
+  /// 完全相同（名称+地址+规则一致）的书源跳过，不重复导入；
+  /// 同名同地址但内容有更新的执行覆盖。
+  /// 返回 (导入/更新数量, 跳过数量)。
+  Future<(int, int)> importJson(String text) async {
     final j = jsonDecode(text.trim());
     final list = j is List ? j : [j];
     var count = 0;
+    var skipped = 0;
     for (final e in list) {
       if (e is! Map) continue;
       final src = BookSource.fromJson(Map<String, dynamic>.from(e));
@@ -228,6 +245,16 @@ class BookSourceManager extends ChangeNotifier {
           s.bookSourceName == src.bookSourceName &&
           s.bookSourceUrl == src.bookSourceUrl);
       if (idx >= 0) {
+        // 与已有书源逐字段一致 → 跳过
+        final old = Map<String, dynamic>.from(sources[idx].toJson())
+          ..remove('enabled');
+        final neu = Map<String, dynamic>.from(src.toJson())
+          ..remove('enabled');
+        if (jsonEncode(old) == jsonEncode(neu)) {
+          skipped++;
+          continue;
+        }
+        src.enabled = sources[idx].enabled; // 保留原启停状态
         sources[idx] = src;
       } else {
         sources.add(src);
@@ -238,7 +265,7 @@ class BookSourceManager extends ChangeNotifier {
       await save();
       notifyListeners();
     }
-    return count;
+    return (count, skipped);
   }
 
   Future<void> toggle(BookSource src, bool enabled) async {
@@ -489,8 +516,8 @@ class LegadoImport {
     final json = extractJson(text);
     switch (type) {
       case 'bookSource':
-        final n = await BookSourceManager.instance.importJson(json);
-        return (n, '书源');
+        final (n, skip) = await BookSourceManager.instance.importJson(json);
+        return (n, skip > 0 ? '书源，跳过 $skip 个重复' : '书源');
       case 'textTocRule':
         final j = jsonDecode(json);
         final list = j is List ? j : [j];

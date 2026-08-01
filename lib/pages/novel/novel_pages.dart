@@ -223,13 +223,14 @@ class NovelSourcesPage extends StatefulWidget {
           final list = d.sources
               .map((e) => SourceDetect.cssToLegado((e as Map).cast()))
               .toList();
-          final n = await BookSourceManager.instance
+          final (n, skip) = await BookSourceManager.instance
               .importJson(jsonEncode(list));
           if (context.mounted) {
             context.showMessage(
-                message: n > 0
-                    ? "导入 @c 个书源（CSS 配置已转换）".tlParams({'c': n})
-                    : "没有可导入的内容".tl);
+                message: (n > 0
+                        ? "导入 @c 个书源（CSS 配置已转换）".tlParams({'c': n})
+                        : "没有可导入的内容".tl) +
+                    (skip > 0 ? '，跳过 $skip 个重复' : ''));
           }
           return;
         case SourceDetectType.tvbox:
@@ -303,10 +304,33 @@ class _NovelSourcesPageState extends State<NovelSourcesPage> {
     super.dispose();
   }
 
+  /// 导入期间显示加载动画（网络下载 + 解析可能耗时较长）
+  Future<void> _withImportLoading(Future<void> Function() task) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 18),
+            Expanded(child: Text('正在导入书源，请稍候…')),
+          ],
+        ),
+      ),
+    );
+    try {
+      await task();
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
   Future<void> _importText(String text, {String type = 'bookSource'}) async {
     if (type == 'bookSource') {
       // 自动识别书源格式（Legado / CSS 配置 / TVBox / fox 压缩串…）
-      await NovelSourcesPage.importAutoText(text, context);
+      await _withImportLoading(
+          () => NovelSourcesPage.importAutoText(text, context));
       return;
     }
     try {
@@ -355,7 +379,8 @@ class _NovelSourcesPageState extends State<NovelSourcesPage> {
       ),
     );
     if (url == null || url.isEmpty) return;
-    await NovelSourcesPage.importLegadoUrl(url, context);
+    await _withImportLoading(
+        () => NovelSourcesPage.importLegadoUrl(url, context));
   }
 
   /// 二维码导入
@@ -363,7 +388,8 @@ class _NovelSourcesPageState extends State<NovelSourcesPage> {
     final code = await context.to<String>(() => const _QrScanPage());
     if (code == null || code.isEmpty || !mounted) return;
     if (code.startsWith('http') || code.startsWith('legado://')) {
-      await NovelSourcesPage.importLegadoUrl(code, context);
+      await _withImportLoading(
+          () => NovelSourcesPage.importLegadoUrl(code, context));
     } else {
       await _importText(code);
     }
@@ -420,7 +446,8 @@ class _NovelSourcesPageState extends State<NovelSourcesPage> {
                 if (data?.text != null && data!.text!.isNotEmpty) {
                   final t = data.text!.trim();
                   if (t.startsWith('http') || t.startsWith('legado://')) {
-                    NovelSourcesPage.importLegadoUrl(t, this.context);
+                    _withImportLoading(() =>
+                        NovelSourcesPage.importLegadoUrl(t, this.context));
                   } else {
                     _importText(t);
                   }
@@ -624,7 +651,16 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
   List<NovelBook> _results = [];
   String? _error;
 
-  /// 搜索模式：true=精确（书名/作者完全匹配优先），false=聚合（全部结果）
+  /// 失败/无结果书源：sourceName → 原因（折叠展示，点击才展开）
+  final Map<String, String> _sourceFails = {};
+
+  /// 书源范围：all / novel / comic / custom
+  String _scope = 'all';
+
+  /// 自选书源（scope == custom 时生效）：bookSourceName 集合
+  Set<String> _customSources = {};
+
+  /// 搜索模式：true=精确（书名/作者必须包含关键字），false=聚合（全部结果）
   bool _exactMode = false;
 
   /// 排序：0=综合（默认） 1=字数多→少 2=字数少→多 3=按书名
@@ -636,23 +672,30 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
   /// 书源筛选（null=全部书源）
   String? _sourceFilter;
 
+  /// 参与搜索的书源（按范围筛选）
+  List<BookSource> get _searchSources {
+    var list = BookSourceManager.instance.enabledSources;
+    if (_scope == 'novel') {
+      list = list.where((s) => s.mediaType == 'novel').toList();
+    } else if (_scope == 'comic') {
+      list = list.where((s) => s.mediaType == 'comic').toList();
+    } else if (_scope == 'custom') {
+      list = list.where((s) => _customSources.contains(s.bookSourceName)).toList();
+    }
+    return list;
+  }
+
   List<NovelBook> get _visible {
     var list = _results;
     if (_exactMode) {
+      // 精确搜索：书名/作者必须包含关键字
       final key = _controller.text.trim().toLowerCase();
       if (key.isNotEmpty) {
-        final exact = list
+        list = list
             .where((b) =>
-                b.name.toLowerCase() == key || b.author.toLowerCase() == key)
+                b.name.toLowerCase().contains(key) ||
+                b.author.toLowerCase().contains(key))
             .toList();
-        final partial = list
-            .where((b) =>
-                b.name.toLowerCase() != key &&
-                b.author.toLowerCase() != key &&
-                (b.name.toLowerCase().contains(key) ||
-                    b.author.toLowerCase().contains(key)))
-            .toList();
-        list = [...exact, ...partial];
       }
     }
     if (_tagFilter != null && _tagFilter!.isNotEmpty) {
@@ -687,7 +730,7 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
   Future<void> _search() async {
     final key = _controller.text.trim();
     if (key.isEmpty) return;
-    final sources = BookSourceManager.instance.enabledSources;
+    final sources = _searchSources;
     if (sources.isEmpty) {
       setState(() {
         _error = 'no-sources';
@@ -701,17 +744,157 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
       _results = [];
       _tagFilter = null;
       _sourceFilter = null;
+      _sourceFails.clear();
     });
-    // 并发搜索全部启用书源，逐个追加结果（聚合搜索）
+    // 并发搜索范围内的书源，逐个追加结果（聚合搜索）
     await Future.wait(sources.map((s) async {
       try {
         final res = await LegadoEngine.search(s, key);
-        if (mounted && res.isNotEmpty) {
+        if (!mounted) return;
+        if (res.isNotEmpty) {
           setState(() => _results = [..._results, ...res]);
+        } else {
+          _sourceFails[s.bookSourceName] = '无结果';
         }
-      } catch (_) {}
+      } catch (_) {
+        _sourceFails[s.bookSourceName] = '加载失败';
+      }
     }));
     if (mounted) setState(() => _searching = false);
+  }
+
+  /// 搜索结果封面（加载失败回退占位图标）
+  Widget _resultCover(NovelBook b) {
+    final placeholder = Container(
+      width: 40,
+      height: 56,
+      decoration: BoxDecoration(
+        color: context.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Icon(
+        b.mediaType == 'comic' ? Icons.image_outlined : Icons.menu_book_outlined,
+        size: 20,
+        color: context.colorScheme.outline,
+      ),
+    );
+    if (b.cover.isEmpty) return placeholder;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.network(
+        b.cover,
+        width: 40,
+        height: 56,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => placeholder,
+        loadingBuilder: (_, child, progress) =>
+            progress == null ? child : placeholder,
+      ),
+    );
+  }
+
+  /// 自选书源多选对话框（按分组展示，可整组选择）
+  Future<void> _pickSources() async {
+    final all = BookSourceManager.instance.enabledSources;
+    final selected = Set<String>.from(_customSources);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          // 按分组归类（空分组归「未分组」）
+          final groups = <String, List<BookSource>>{};
+          for (final s in all) {
+            final g = s.bookSourceGroup.isEmpty ? '未分组' : s.bookSourceGroup;
+            groups.putIfAbsent(g, () => []).add(s);
+          }
+          return AlertDialog(
+            title: Text("选择书源范围".tl),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 420,
+              child: ListView(
+                children: [
+                  for (final e in groups.entries) ...[
+                    CheckboxListTile(
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(e.key,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text('${e.value.length} 个书源',
+                          style: const TextStyle(fontSize: 12)),
+                      tristate: true,
+                      value: e.value.every(
+                              (s) => selected.contains(s.bookSourceName))
+                          ? true
+                          : (e.value.any(
+                                  (s) => selected.contains(s.bookSourceName))
+                              ? null
+                              : false),
+                      onChanged: (v) => setDlg(() {
+                        for (final s in e.value) {
+                          if (v ?? false) {
+                            selected.add(s.bookSourceName);
+                          } else {
+                            selected.remove(s.bookSourceName);
+                          }
+                        }
+                      }),
+                    ),
+                    for (final s in e.value)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 24),
+                        child: CheckboxListTile(
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          value: selected.contains(s.bookSourceName),
+                          onChanged: (v) => setDlg(() {
+                            if (v ?? false) {
+                              selected.add(s.bookSourceName);
+                            } else {
+                              selected.remove(s.bookSourceName);
+                            }
+                          }),
+                          title: Text(s.bookSourceName,
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          secondary: Icon(
+                              s.mediaType == 'comic'
+                                  ? Icons.image_outlined
+                                  : Icons.menu_book_outlined,
+                              size: 18),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => setDlg(() {
+                  selected
+                    ..clear()
+                    ..addAll(all.map((s) => s.bookSourceName));
+                }),
+                child: Text("全选".tl),
+              ),
+              TextButton(
+                onPressed: () => setDlg(selected.clear),
+                child: Text("清空".tl),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text("确定".tl),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (ok == true) {
+      setState(() {
+        _customSources = selected;
+        _scope = 'custom';
+      });
+    }
   }
 
   @override
@@ -735,6 +918,44 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                 ),
               ),
               onSubmitted: (_) => _search(),
+            ),
+          ),
+          // 书源范围选择（全部/小说/漫画/自选多选）
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                for (final (v, label) in [
+                  ('all', '全部书源'),
+                  ('novel', '只看小说'),
+                  ('comic', '只看漫画'),
+                ])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(label, style: const TextStyle(fontSize: 12)),
+                      selected: _scope == v,
+                      onSelected: (_) => setState(() => _scope = v),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    avatar: const Icon(Icons.checklist_outlined, size: 14),
+                    label: Text(
+                      _scope == 'custom'
+                          ? '已选 ${_customSources.length} 个书源'
+                          : '自选书源',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    onPressed: _pickSources,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
             ),
           ),
           // 模式切换 + 排序
@@ -839,13 +1060,47 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                           );
                         }
                         return ListView.builder(
-                          itemCount: list.length,
+                          itemCount:
+                              list.length + (_sourceFails.isNotEmpty ? 1 : 0),
                           itemBuilder: (context, i) {
+                            // 末尾：失败/无结果书源折叠区
+                            if (i == list.length) {
+                              return Card(
+                                margin: const EdgeInsets.all(8),
+                                child: ExpansionTile(
+                                  dense: true,
+                                  leading: Icon(Icons.folder_off_outlined,
+                                      color: context.colorScheme.outline),
+                                  title: Text(
+                                    '${_sourceFails.length} 个书源无结果或加载失败（已折叠）',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: context.colorScheme.outline),
+                                  ),
+                                  children: [
+                                    for (final e in _sourceFails.entries)
+                                      ListTile(
+                                        dense: true,
+                                        leading: const Icon(
+                                            Icons.error_outline,
+                                            size: 18),
+                                        title: Text(e.key,
+                                            style:
+                                                const TextStyle(fontSize: 13)),
+                                        trailing: Text(e.value,
+                                            style: TextStyle(
+                                                fontSize: 12,
+                                                color: context
+                                                    .colorScheme.outline)),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            }
                             final b = list[i];
+                            final inShelf = NovelShelf.instance.contains(b.url);
                             return ListTile(
-                              leading: Icon(b.mediaType == 'comic'
-                                  ? Icons.image_outlined
-                                  : Icons.menu_book_outlined),
+                              leading: _resultCover(b),
                               title: Text(b.name,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis),
@@ -862,6 +1117,28 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 12),
+                              ),
+                              trailing: IconButton(
+                                tooltip: inShelf ? '已在书架' : '加入书架',
+                                icon: Icon(
+                                  inShelf
+                                      ? Icons.bookmark_added
+                                      : Icons.bookmark_add_outlined,
+                                  color: inShelf
+                                      ? context.colorScheme.primary
+                                      : null,
+                                ),
+                                onPressed: () async {
+                                  if (inShelf) {
+                                    await NovelShelf.instance.remove(b.url);
+                                  } else {
+                                    await NovelShelf.instance.add(b);
+                                    if (context.mounted) {
+                                      context.showMessage(message: '已加入书架');
+                                    }
+                                  }
+                                  setState(() {});
+                                },
                               ),
                               onTap: () =>
                                   context.to(() => NovelBookPage(book: b)),

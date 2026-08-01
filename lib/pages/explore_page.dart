@@ -5,7 +5,10 @@ import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
 import 'package:venera/foundation/global_state.dart';
 import 'package:venera/foundation/res.dart';
+import 'package:venera/omnihub/novel/book_source.dart';
+import 'package:venera/omnihub/novel/legado_engine.dart';
 import 'package:venera/pages/comic_source_page.dart';
+import 'package:venera/pages/novel/novel_pages.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/ext.dart';
 import 'package:venera/utils/translations.dart';
@@ -27,6 +30,12 @@ class _ExplorePageState extends State<ExplorePage>
 
   late List<String> pages;
 
+  /// 小说/书源发现页的内置 tab id（书源含 exploreUrl 时出现）
+  static const String novelExploreTabId = '\$novel_explore';
+
+  bool get _hasNovelExplore => BookSourceManager.instance.sources
+      .any((s) => s.enabled && (s.exploreUrl ?? '').isNotEmpty);
+
   void onSettingsChanged() {
     var explorePages = List<String>.from(appdata.settings["explore_pages"]);
     var all = ComicSource.all()
@@ -34,6 +43,7 @@ class _ExplorePageState extends State<ExplorePage>
         .expand((e) => e.map((e) => e.title))
         .toList();
     explorePages = explorePages.where((e) => all.contains(e)).toList();
+    if (_hasNovelExplore) explorePages.add(novelExploreTabId);
     if (!pages.isEqualTo(explorePages)) {
       setState(() {
         pages = explorePages;
@@ -49,6 +59,7 @@ class _ExplorePageState extends State<ExplorePage>
     if (index == 2) {
       int page = controller.index;
       String currentPageId = pages[page];
+      if (currentPageId == novelExploreTabId) return;
       GlobalState.find<_SingleExplorePageState>(currentPageId).toTop();
     }
   }
@@ -67,6 +78,11 @@ class _ExplorePageState extends State<ExplorePage>
         .expand((e) => e.map((e) => e.title))
         .toList();
     pages = pages.where((e) => all.contains(e)).toList();
+    if (_hasNovelExplore) pages.add(novelExploreTabId);
+    BookSourceManager.instance.load().then((_) {
+      if (mounted) onSettingsChanged();
+    });
+    BookSourceManager.instance.addListener(onSettingsChanged);
     controller = TabController(
       length: pages.length,
       vsync: this,
@@ -86,6 +102,7 @@ class _ExplorePageState extends State<ExplorePage>
   void dispose() {
     controller.dispose();
     appdata.settings.removeListener(onSettingsChanged);
+    BookSourceManager.instance.removeListener(onSettingsChanged);
     naviPane?.removeNaviItemTapListener(onNaviItemTapped);
     super.dispose();
   }
@@ -93,6 +110,10 @@ class _ExplorePageState extends State<ExplorePage>
   void refresh() {
     int page = controller.index;
     String currentPageId = pages[page];
+    if (currentPageId == novelExploreTabId) {
+      GlobalState.find<_NovelExploreTabState>(currentPageId).refresh();
+      return;
+    }
     GlobalState.find<_SingleExplorePageState>(currentPageId).refresh();
   }
 
@@ -106,13 +127,18 @@ class _ExplorePageState extends State<ExplorePage>
       );
 
   Tab buildTab(String i) {
+    if (i == novelExploreTabId) {
+      return Tab(text: "书源发现".tl, key: Key(i));
+    }
     var comicSource = ComicSource.all()
         .firstWhere((e) => e.explorePages.any((e) => e.title == i));
     return Tab(text: i.ts(comicSource.key), key: Key(i));
   }
 
   Widget buildBody(String i) => Material(
-        child: _SingleExplorePage(i, key: PageStorageKey(i)),
+        child: i == novelExploreTabId
+            ? _NovelExploreTab(key: PageStorageKey(i))
+            : _SingleExplorePage(i, key: PageStorageKey(i)),
       );
 
   Widget buildEmpty() {
@@ -580,5 +606,237 @@ class _MultiPartExplorePageState extends State<_MultiPartExplorePage> {
     for (var part in parts!) {
       yield* _buildExplorePagePart(part, widget.comicSourceKey);
     }
+  }
+}
+
+/// 书源发现 tab：漫画源 + 小说源（legado exploreUrl），统一封面网格
+class _NovelExploreTab extends StatefulWidget {
+  const _NovelExploreTab({super.key});
+
+  @override
+  State<_NovelExploreTab> createState() => _NovelExploreTabState();
+}
+
+class _NovelExploreTabState extends AutomaticGlobalState<_NovelExploreTab>
+    with AutomaticKeepAliveClientMixin<_NovelExploreTab> {
+  BookSource? _source;
+  List<(String, String)> _categories = [];
+  int _categoryIndex = 0;
+  List<NovelBook> _books = [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  Object? get key => (widget.key as PageStorageKey?)?.value;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  List<BookSource> get _exploreSources => BookSourceManager.instance.sources
+      .where((s) => s.enabled && (s.exploreUrl ?? '').isNotEmpty)
+      .toList();
+
+  @override
+  void initState() {
+    super.initState();
+    BookSourceManager.instance.load().then((_) {
+      if (!mounted) return;
+      final list = _exploreSources;
+      if (list.isNotEmpty) {
+        _selectSource(list.first);
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
+  void _selectSource(BookSource s) {
+    setState(() {
+      _source = s;
+      _categories = LegadoEngine.exploreCategories(s);
+      _categoryIndex = 0;
+      _books = [];
+      _error = null;
+    });
+    if (_categories.isNotEmpty) {
+      _loadCategory(0);
+    }
+  }
+
+  Future<void> _loadCategory(int index) async {
+    final s = _source;
+    if (s == null || index >= _categories.length) return;
+    setState(() {
+      _categoryIndex = index;
+      _loading = true;
+      _error = null;
+      _books = [];
+    });
+    try {
+      final res = await LegadoEngine.explore(s, _categories[index].$2);
+      if (mounted) {
+        setState(() {
+          _books = res;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  void refresh() {
+    if (_categories.isNotEmpty) {
+      _loadCategory(_categoryIndex);
+    } else if (_source != null) {
+      _selectSource(_source!);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final sources = _exploreSources;
+    if (sources.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            "暂无支持发现功能的书源。\n导入含 exploreUrl 的小说/漫画书源后，这里会展示对应内容。"
+                .tl,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: context.colorScheme.outline),
+          ),
+        ),
+      );
+    }
+    return Column(
+      children: [
+        SizedBox(
+          height: 44,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            children: [
+              for (final s in sources)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    avatar: Icon(
+                        s.mediaType == 'comic'
+                            ? Icons.image_outlined
+                            : Icons.menu_book_outlined,
+                        size: 14),
+                    label:
+                        Text(s.bookSourceName, style: const TextStyle(fontSize: 12)),
+                    selected: _source == s,
+                    onSelected: (_) => _selectSource(s),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              if (_categories.isNotEmpty)
+                const VerticalDivider(width: 16),
+              for (var i = 0; i < _categories.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: FilterChip(
+                    label: Text(_categories[i].$1,
+                        style: const TextStyle(fontSize: 12)),
+                    selected: _categoryIndex == i,
+                    onSelected: (_) => _loadCategory(i),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (_loading) const LinearProgressIndicator(),
+        Expanded(
+          child: _error != null
+              ? NetworkError(
+                  message: _error!,
+                  retry: refresh,
+                  withAppbar: false,
+                )
+              : _books.isEmpty
+                  ? Center(
+                      child: Text(
+                        _loading ? "加载中…".tl : "暂无内容".tl,
+                        style:
+                            TextStyle(color: context.colorScheme.outline),
+                      ),
+                    )
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 130,
+                        childAspectRatio: 0.52,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                      ),
+                      itemCount: _books.length,
+                      itemBuilder: (_, i) {
+                        final b = _books[i];
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () =>
+                              context.to(() => NovelBookPage(book: b)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    width: double.infinity,
+                                    color: context.colorScheme
+                                        .surfaceContainerHigh,
+                                    child: b.cover.isEmpty
+                                        ? Icon(
+                                            b.mediaType == 'comic'
+                                                ? Icons.image_outlined
+                                                : Icons.menu_book_outlined,
+                                            color: context
+                                                .colorScheme.outline)
+                                        : Image.network(
+                                            b.cover,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                Icon(Icons.broken_image_outlined,
+                                                    color: context.colorScheme
+                                                        .outline),
+                                          ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(b.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500)),
+                              if (b.author.isNotEmpty)
+                                Text(b.author,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        color:
+                                            context.colorScheme.outline)),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
   }
 }
