@@ -21,7 +21,6 @@ dependencies:
       url: https://github.com/venera-app/flutter_qjs
       ref: 8feae95df7fb00455df129ad7a0dfec1d0e8d8e4
   crypto: ^3.0.6
-  encrypt: ^5.0.3
   dio: ^5.9.2
   fast_gbk: ^1.0.0
   open_filex: ^4.7.0

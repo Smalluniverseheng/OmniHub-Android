@@ -7,10 +7,13 @@
 library sync_crypto;
 
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:encrypt/encrypt.dart' as enc;
+import 'package:pointycastle/api.dart';
+import 'package:pointycastle/block/aes.dart';
+import 'package:pointycastle/block/modes/cbc.dart';
 
 import 'package:venera/foundation/appdata.dart';
 
@@ -27,14 +30,51 @@ class SyncCrypto {
   static bool get hasKey =>
       (appdata.settings['syncEncKey']?.toString() ?? '').isNotEmpty;
 
-  static enc.Key? _key() {
+  static Uint8List? _key() {
     final k = appdata.settings['syncEncKey']?.toString() ?? '';
     if (k.isEmpty) return null;
     try {
-      return enc.Key.fromBase64(k);
+      return base64Decode(k);
     } catch (_) {
       return null;
     }
+  }
+
+  /* ------- AES-256-CBC + PKCS7 填充（pointycastle 块级实现） ------- */
+
+  static Uint8List _encrypt(Uint8List key, Uint8List plain, Uint8List iv) {
+    final cipher = CBCBlockCipher(AESEngine())
+      ..init(true, ParametersWithIV(KeyParameter(key), iv));
+    // PKCS7 填充
+    final pad = 16 - (plain.length % 16);
+    final input = Uint8List(plain.length + pad)
+      ..setAll(0, plain)
+      ..fillRange(plain.length, plain.length + pad, pad);
+    final out = Uint8List(input.length);
+    var offset = 0;
+    while (offset < input.length) {
+      offset += cipher.processBlock(input, offset, out, offset);
+    }
+    return out;
+  }
+
+  static Uint8List _decrypt(Uint8List key, Uint8List data, Uint8List iv) {
+    final cipher = CBCBlockCipher(AESEngine())
+      ..init(false, ParametersWithIV(KeyParameter(key), iv));
+    final out = Uint8List(data.length);
+    var offset = 0;
+    while (offset < data.length) {
+      offset += cipher.processBlock(data, offset, out, offset);
+    }
+    final pad = out.last;
+    if (pad < 1 || pad > 16) throw 'bad padding';
+    return Uint8List.sublistView(out, 0, out.length - pad);
+  }
+
+  static Uint8List _randomBytes(int n) {
+    final rng = Random.secure();
+    return Uint8List.fromList(
+        List<int>.generate(n, (_) => rng.nextInt(256)));
   }
 
   /// 设置/更换密码：派生密钥并保存（仅本地）
@@ -64,10 +104,9 @@ class SyncCrypto {
   static String encryptText(String plain) {
     final key = _key();
     if (key == null) return plain;
-    final iv = enc.IV.fromSecureRandom(16);
-    final aes = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
-    final cipher = aes.encrypt(plain, iv: iv);
-    return prefix + base64Encode([...iv.bytes, ...cipher.bytes]);
+    final iv = _randomBytes(16);
+    final cipher = _encrypt(key, utf8.encode(plain), iv);
+    return prefix + base64Encode([...iv, ...cipher]);
   }
 
   /// 解密文本：带前缀则解密（无密钥返回 null），否则原样返回
@@ -77,10 +116,11 @@ class SyncCrypto {
     if (key == null) return null;
     try {
       final bytes = base64Decode(s.substring(prefix.length));
-      final iv = enc.IV(Uint8List.sublistView(bytes, 0, 16));
-      final aes = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
-      return aes.decrypt(enc.Encrypted(Uint8List.sublistView(bytes, 16)),
-          iv: iv);
+      final plain = _decrypt(
+          key,
+          Uint8List.sublistView(bytes, 16),
+          Uint8List.sublistView(bytes, 0, 16));
+      return utf8.decode(plain);
     } catch (_) {
       return null;
     }
