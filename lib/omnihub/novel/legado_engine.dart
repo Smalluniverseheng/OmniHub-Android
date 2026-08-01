@@ -677,6 +677,7 @@ var java = {
     }
   }
 
+  // ignore: library_private_types_in_public_api
   static String cssExtract(dom.Element el, _CssValue? value, String baseUrl) {
     if (value == null) return trim(el.text);
     switch (value.kind) {
