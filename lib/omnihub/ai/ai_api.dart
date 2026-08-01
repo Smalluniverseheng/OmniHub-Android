@@ -6,6 +6,7 @@ library ai_api;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 
@@ -15,12 +16,31 @@ class AiMessage {
   final String role; // system | user | assistant
   final String content;
 
-  const AiMessage(this.role, this.content);
+  /// 附件：[{type: image|file, name, path}]，path 为本地绝对路径
+  final List<Map<String, String>> attachments;
 
-  Map<String, dynamic> toJson() => {'role': role, 'content': content};
+  /// 内容类型：text（默认）| image（AI 生图结果）| video（AI 生视频结果）
+  final String kind;
 
-  factory AiMessage.fromJson(Map<String, dynamic> j) =>
-      AiMessage(j['role'] as String? ?? 'user', j['content'] as String? ?? '');
+  const AiMessage(this.role, this.content,
+      {this.attachments = const [], this.kind = 'text'});
+
+  Map<String, dynamic> toJson() => {
+        'role': role,
+        'content': content,
+        if (attachments.isNotEmpty) 'attachments': attachments,
+        if (kind != 'text') 'kind': kind,
+      };
+
+  factory AiMessage.fromJson(Map<String, dynamic> j) => AiMessage(
+        j['role'] as String? ?? 'user',
+        j['content'] as String? ?? '',
+        attachments: ((j['attachments'] as List?) ?? [])
+            .map((e) => Map<String, String>.from(
+                (e as Map).map((k, v) => MapEntry(k.toString(), v.toString()))))
+            .toList(),
+        kind: j['kind'] as String? ?? 'text',
+      );
 }
 
 class AiApiException implements Exception {
@@ -37,6 +57,58 @@ class AiApiException implements Exception {
 class AiApi {
   AiApi._();
 
+  static bool _webSearchEnabled = false;
+
+  /// 把消息转换为 OpenAI 兼容的 content（有图片附件时为多模态数组）
+  static Future<Map<String, dynamic>> toOpenAiPayload(AiMessage m,
+      {int maxImageBytes = 4 * 1024 * 1024}) async {
+    final images = m.attachments.where((a) => a['type'] == 'image').toList();
+    final files = m.attachments.where((a) => a['type'] == 'file').toList();
+    if (images.isEmpty && files.isEmpty) return m.toJson();
+    final parts = <Map<String, dynamic>>[];
+    var text = m.content;
+    for (final f in files) {
+      try {
+        final content = await File(f['path']!).readAsString();
+        final name = f['name'] ?? 'file';
+        text += '\n\n[附件 $name]\n$content';
+      } catch (_) {
+        text += '\n\n[附件 ${f['name'] ?? 'file'} 读取失败]';
+      }
+    }
+    if (images.isEmpty) {
+      return {'role': m.role, 'content': text};
+    }
+    if (text.isNotEmpty) parts.add({'type': 'text', 'text': text});
+    for (final img in images) {
+      try {
+        final bytes = await File(img['path']!).readAsBytes();
+        if (bytes.length > maxImageBytes) {
+          parts.add({
+            'type': 'text',
+            'text': '[图片 ${img['name'] ?? ''} 超过大小限制，未上传]'
+          });
+          continue;
+        }
+        final ext = (img['name'] ?? 'jpg').split('.').last.toLowerCase();
+        final mime = ext == 'png'
+            ? 'image/png'
+            : ext == 'gif'
+                ? 'image/gif'
+                : ext == 'webp'
+                    ? 'image/webp'
+                    : 'image/jpeg';
+        parts.add({
+          'type': 'image_url',
+          'image_url': {
+            'url': 'data:$mime;base64,${base64Encode(bytes)}'
+          },
+        });
+      } catch (_) {}
+    }
+    return {'role': m.role, 'content': parts};
+  }
+
   static final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 15),
     receiveTimeout: const Duration(minutes: 3),
@@ -51,6 +123,9 @@ class AiApi {
     required void Function(String token) onToken,
     String? customBase,
     CancelToken? cancelToken,
+
+    /// 开启厂商联网搜索（目前适配 openai 兼容格式的 enable_search 字段）
+    bool webSearch = false,
   }) async {
     final base =
         (provider.custom && (customBase?.isNotEmpty ?? false))
@@ -59,6 +134,7 @@ class AiApi {
     if (base.isEmpty) {
       throw AiApiException('未配置 API 地址（自定义厂商需填写 Base URL）');
     }
+    _webSearchEnabled = webSearch;
     final effective = AiProvider(
       name: provider.name,
       format: provider.format,
@@ -147,12 +223,19 @@ class AiApi {
     CancelToken? cancelToken,
   ) async {
     try {
+      final payload = <Map<String, dynamic>>[];
+      for (final m in messages) {
+        payload.add(await toOpenAiPayload(m));
+      }
       final res = await _dio.post<ResponseBody>(
         p.chatUrl(model, apiKey),
         data: {
           'model': model,
-          'messages': messages.map((m) => m.toJson()).toList(),
+          'messages': payload,
           'stream': true,
+          // 联网搜索：通义/智谱/DeepSeek 等 openai 兼容厂商识别此字段
+          if (_webSearchEnabled) 'enable_search': true,
+          if (_webSearchEnabled) 'web_search_options': {'search_context_size': 'medium'},
         },
         options: Options(
           headers: p.headers(apiKey),

@@ -1,174 +1,187 @@
-/// OmniHub AI 对话页
+/// OmniHub AI 对话主页（Kimi 风格）
 ///
-/// 会话列表 + 聊天界面（流式输出）。支持从漫画详情页带书籍上下文
-/// 打开（「问 AI」），AI 回答可一键存为阅读注释。
+/// - 左侧 4/5 宽历史抽屉：三杠按钮或整页右滑均可呼出，点右侧 1/5 区域返回
+/// - 输入栏：+ 面板（拍照/照片/文件/常用语/联网搜索）、语音长按转文字、
+///   有内容时才显示发送键
+/// - 长文本粘贴自动转附件（可撤销）
+/// - 模型选择：厂商树状折叠、聊天/图片/视频分类、过期模型隐藏
+/// - 能力感知：非视觉模型隐藏图片/拍照入口
+/// - 对话 5 轮后 AI 自动命名标题；置顶最多 3 个；空对话不保存
 library ai_chat_page;
 
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:venera/foundation/app.dart';
+import 'package:venera/foundation/appdata.dart';
 import 'package:venera/omnihub/ai/ai_api.dart';
+import 'package:venera/omnihub/ai/ai_media_api.dart';
+import 'package:venera/omnihub/ai/ai_media_models.dart';
+import 'package:venera/omnihub/ai/ai_models.dart';
 import 'package:venera/omnihub/ai/ai_providers.dart';
 import 'package:venera/omnihub/ai/ai_store.dart';
 import 'package:venera/omnihub/ai/annotations.dart';
-import 'package:venera/pages/ai_models_page.dart';
+import 'package:venera/omnihub/ai/brand_icon.dart';
+import 'package:venera/omnihub/sync/omni_sync.dart';
 import 'package:venera/pages/settings/settings_page.dart';
 import 'package:venera/utils/translations.dart';
 
-/// 会话列表页
+part 'ai_chat_parts.dart';
+
+/// 剪贴板超过该长度自动转为附件
+const int kPasteToAttachmentThreshold = 800;
+
+/// AI 主页
 class AiChatListPage extends StatefulWidget {
-  const AiChatListPage({super.key});
-
-  @override
-  State<AiChatListPage> createState() => _AiChatListPageState();
-}
-
-class _AiChatListPageState extends State<AiChatListPage> {
-  @override
-  void initState() {
-    super.initState();
-    AiStore.instance.addListener(_onChange);
-    AiStore.instance.load().then((_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  void _onChange() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    AiStore.instance.removeListener(_onChange);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final store = AiStore.instance;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("AI Chat".tl),
-        actions: [
-          IconButton(
-            tooltip: "Leaderboard".tl,
-            icon: const Icon(Icons.leaderboard_outlined),
-            onPressed: () => context.to(() => const AiLeaderboardPage()),
-          ),
-          IconButton(
-            tooltip: "AI Settings".tl,
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.to(() => const SettingsPage(initialPage: 6)),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          if (!store.hasAnyKey()) {
-            context.showMessage(message: "请先在 AI 设置中配置 API Key");
-            context.to(() => const SettingsPage(initialPage: 6));
-            return;
-          }
-          final c = store.newConversation();
-          context.to(() => AiChatPage(conversationId: c.id));
-        },
-        child: const Icon(Icons.add),
-      ),
-      body: store.conversations.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.smart_toy_outlined,
-                      size: 64, color: context.colorScheme.outline),
-                  const SizedBox(height: 12),
-                  Text("还没有对话，点右下角开始".tl,
-                      style: TextStyle(color: context.colorScheme.outline)),
-                ],
-              ),
-            )
-          : ListView.builder(
-              itemCount: store.conversations.length,
-              itemBuilder: (context, i) {
-                final c = store.conversations[i];
-                final last = c.messages.isEmpty
-                    ? ''
-                    : c.messages.last.content.replaceAll('\n', ' ');
-                return ListTile(
-                  leading: Icon(c.bookRef != null
-                      ? Icons.menu_book_outlined
-                      : Icons.chat_bubble_outline),
-                  title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: Text(
-                    last.isEmpty ? '（空）' : last,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => store.deleteConversation(c.id),
-                  ),
-                  onTap: () =>
-                      context.to(() => AiChatPage(conversationId: c.id)),
-                );
-              },
-            ),
-    );
-  }
-}
-
-/// 聊天页
-class AiChatPage extends StatefulWidget {
+  /// 打开指定历史对话（可选）
   final String? conversationId;
 
-  /// 新建对话时可带书籍上下文（漫画详情页「问 AI」入口）
+  /// 书籍上下文（漫画详情页「问 AI」入口）
   final String? bookContext;
   final String? bookRef;
 
-  const AiChatPage({super.key, this.conversationId, this.bookContext, this.bookRef});
+  const AiChatListPage(
+      {super.key, this.conversationId, this.bookContext, this.bookRef});
 
   @override
-  State<AiChatPage> createState() => _AiChatPageState();
+  State<AiChatListPage> createState() => AiHomePageState();
 }
 
-class _AiChatPageState extends State<AiChatPage> {
+/// 对外开放 State 类型名（drawer 手势需要）
+class AiHomePageState extends State<AiChatListPage>
+    with SingleTickerProviderStateMixin {
   AiConversation? _conv;
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _inputFocus = FocusNode();
   bool _sending = false;
   CancelToken? _cancel;
+
+  /// 待发送附件 [{type, name, path}]
+  final List<Map<String, String>> _pendingAttachments = [];
+
+  /// 抽屉开合 0=关闭 1=打开
+  double _drawerT = 0;
+  bool _drawerDragging = false;
+
+  /// 语音
+  final SpeechToText _speech = SpeechToText();
+  bool _speechReady = false;
+  bool _listening = false;
+
+  /// 联网搜索：auto / off
+  String get _webSearch => appdata.settings['aiWebSearch']?.toString() ?? 'auto';
+
+  bool get _hasText => _input.text.trim().isNotEmpty;
 
   @override
   void initState() {
     super.initState();
+    AiStore.instance.addListener(_onStore);
     AiStore.instance.load().then((_) {
-      final store = AiStore.instance;
+      AiStore.instance.pruneEmpty();
       if (widget.conversationId != null) {
         try {
-          _conv = store.conversations.firstWhere((c) => c.id == widget.conversationId);
+          _conv = AiStore.instance.conversations
+              .firstWhere((c) => c.id == widget.conversationId);
         } catch (_) {}
+      } else if (widget.bookContext != null) {
+        _conv = AiStore.instance.newConversation(
+            bookContext: widget.bookContext, bookRef: widget.bookRef);
       }
-      _conv ??= store.newConversation(
-          bookContext: widget.bookContext, bookRef: widget.bookRef);
       if (mounted) setState(() {});
     });
+    _input.addListener(() => setState(() {}));
+    _initSpeech();
+  }
+
+  void _onStore() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      _speechReady = await _speech.initialize();
+    } catch (_) {
+      _speechReady = false;
+    }
   }
 
   @override
   void dispose() {
+    AiStore.instance.removeListener(_onStore);
+    AiStore.instance.pruneEmpty();
     _input.dispose();
     _scroll.dispose();
+    _inputFocus.dispose();
     _cancel?.cancel();
+    _speech.stop();
     super.dispose();
   }
+
+  /// 当前会话使用的模型 id
+  String get _currentModelId {
+    if (_conv != null && _conv!.model.isNotEmpty) return _conv!.model;
+    return AiStore.instance.effectiveModel;
+  }
+
+  /// 当前模型目录条目（可能为 null：聚合平台自定义模型）
+  AiModel? get _currentCatalogModel => AiModels.get(_currentModelId);
+
+  /// 当前模型能力：视觉（未收录的聚合模型默认允许，由用户自行判断）
+  bool get _modelSupportsVision =>
+      _currentCatalogModel == null || _currentCatalogModel!.vision;
+
+  /// 当前选中的媒体模型（图像/视频），null 表示聊天模型
+  AiMediaModel? get _currentMediaModel {
+    final id = _currentModelId;
+    for (final m in kAiMediaModels) {
+      if (m.id == id) return m;
+    }
+    return null;
+  }
+
+  void _newConversation() {
+    setState(() {
+      _conv = null;
+      _pendingAttachments.clear();
+      _input.clear();
+    });
+    _closeDrawer();
+  }
+
+  void _openConversation(String id) {
+    final store = AiStore.instance;
+    try {
+      _conv = store.conversations.firstWhere((c) => c.id == id);
+    } catch (_) {
+      _conv = null;
+    }
+    setState(() {});
+    _closeDrawer();
+    _scrollToBottom();
+  }
+
+  void _closeDrawer() {
+    setState(() => _drawerT = 0);
+  }
+
+  // ---------------- 发送 ----------------
 
   List<AiMessage> _buildRequestMessages() {
     final msgs = <AiMessage>[];
     if (_conv?.bookContext != null && _conv!.bookContext!.isNotEmpty) {
       msgs.add(AiMessage('system',
-          '你是用户的阅读伴侣（参考 ReadAware 的理念：AI 陪伴阅读而不是取代阅读）。'
-          '用户正在阅读以下作品，回答时请结合作品上下文，简洁准确，必要时引用原文：\n\n'
+          '你是用户的阅读伴侣。用户正在阅读以下作品，回答时请结合作品上下文，简洁准确：\n\n'
           '${_conv!.bookContext}'));
     } else {
       msgs.add(AiMessage('system', '你是 OmniHub 内置的 AI 助手，回答简洁准确。'));
@@ -179,29 +192,50 @@ class _AiChatPageState extends State<AiChatPage> {
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty || _sending || _conv == null) return;
+    if ((text.isEmpty && _pendingAttachments.isEmpty) || _sending) return;
     final store = AiStore.instance;
-    final provider = AiProviders.get(_conv!.providerSlug) ?? store.currentProvider;
+    final provider = AiProviders.get(
+            _conv?.providerSlug ?? store.selectedProvider) ??
+        store.currentProvider;
     if (provider == null) return;
     final key = store.getKey(provider.keySlug);
     if (key.isEmpty) {
       context.showMessage(message: "请先配置 ${provider.name} 的 API Key");
+      context.to(() => const SettingsPage(initialPage: 6));
       return;
     }
-    final model = _conv!.model.isNotEmpty ? _conv!.model : store.effectiveModel;
+    final model = _currentModelId;
     if (model.isEmpty) {
-      context.showMessage(message: "请先在 AI 设置中选择模型");
+      context.showMessage(message: "请先选择模型");
       return;
     }
 
+    _conv ??= store.newConversation();
+    final attachments = List<Map<String, String>>.from(_pendingAttachments);
     _input.clear();
     setState(() {
-      _conv!.messages.add(AiMessage('user', text));
-      _conv!.messages.add(const AiMessage('assistant', ''));
+      _pendingAttachments.clear();
+      _conv!.messages
+          .add(AiMessage('user', text, attachments: attachments));
       _sending = true;
     });
     _scrollToBottom();
 
+    final media = _currentMediaModel;
+    if (media != null) {
+      await _sendMedia(media, provider, key, text);
+      return;
+    }
+    await _sendChat(provider, key, model);
+  }
+
+  /// 文本对话流式发送
+  Future<void> _sendChat(
+      AiProvider provider, String key, String model) async {
+    setState(() {
+      _conv!.messages.add(const AiMessage('assistant', ''));
+    });
+    _scrollToBottom();
     _cancel = CancelToken();
     try {
       await AiApi.chatStream(
@@ -210,6 +244,7 @@ class _AiChatPageState extends State<AiChatPage> {
         model: model,
         messages: _buildRequestMessages(),
         cancelToken: _cancel,
+        webSearch: _webSearch == 'auto',
         onToken: (token) {
           if (!mounted) return;
           setState(() {
@@ -220,15 +255,11 @@ class _AiChatPageState extends State<AiChatPage> {
           _scrollToBottom();
         },
       );
-      if (_conv!.title == '新对话' || _conv!.title == '书籍问答') {
-        _conv!.title =
-            text.length > 20 ? '${text.substring(0, 20)}…' : text;
-      }
-      store.updateConversation(_conv!);
+      AiStore.instance.updateConversation(_conv!);
+      _maybeAutoTitle(provider, key, model);
     } on DioException catch (e) {
       if (e.type == DioExceptionType.cancel) {
-        // 用户主动停止，保留已输出内容
-        store.updateConversation(_conv!);
+        AiStore.instance.updateConversation(_conv!);
       } else {
         _markError(e.toString());
       }
@@ -237,6 +268,120 @@ class _AiChatPageState extends State<AiChatPage> {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  /// 图像/视频生成
+  Future<void> _sendMedia(
+      AiMediaModel media, AiProvider provider, String key, String prompt) async {
+    final store = AiStore.instance;
+    try {
+      if (media.type == 'image') {
+        final res = await AiMediaApi.generateImage(
+          provider: provider,
+          apiKey: key,
+          model: media.id,
+          prompt: prompt,
+          customBase: store.customBase,
+        );
+        final saved = <Map<String, String>>[];
+        var i = 0;
+        for (final b64 in res.b64Images) {
+          final p = await _saveBytes(
+              base64Decode(b64), 'gen_${DateTime.now().millisecondsSinceEpoch}_$i.png');
+          saved.add({'type': 'image', 'name': '生成图.png', 'path': p});
+          i++;
+        }
+        for (final url in res.urls) {
+          try {
+            final bytes = await _download(url);
+            final p = await _saveBytes(
+                bytes, 'gen_${DateTime.now().millisecondsSinceEpoch}_$i.png');
+            saved.add({'type': 'image', 'name': '生成图.png', 'path': p});
+            i++;
+          } catch (_) {
+            // 下载失败时保留链接
+            saved.add({'type': 'imageUrl', 'name': '生成图', 'path': url});
+          }
+        }
+        setState(() {
+          _conv!.messages.add(AiMessage('assistant', prompt,
+              attachments: saved, kind: 'image'));
+        });
+      } else {
+        // 视频：任务制轮询
+        final taskId = await AiMediaApi.createVideoTask(
+          provider: provider,
+          apiKey: key,
+          model: media.id,
+          prompt: prompt,
+          customBase: store.customBase,
+        );
+        setState(() {
+          _conv!.messages
+              .add(const AiMessage('assistant', '⏳ 视频生成中，请稍候…', kind: 'video'));
+        });
+        String? url;
+        for (var i = 0; i < 60; i++) {
+          await Future.delayed(const Duration(seconds: 5));
+          url = await AiMediaApi.pollVideoTask(
+            provider: provider,
+            apiKey: key,
+            taskId: taskId,
+            customBase: store.customBase,
+          );
+          if (url != null) break;
+          if (!mounted) return;
+        }
+        if (!mounted) return;
+        setState(() {
+          _conv!.messages[_conv!.messages.length - 1] = AiMessage(
+              'assistant',
+              url != null ? url : '视频生成超时，请稍后在历史记录中查看任务状态',
+              kind: 'video');
+        });
+      }
+      store.updateConversation(_conv!);
+    } catch (e) {
+      setState(() {
+        _conv!.messages
+            .add(AiMessage('assistant', '⚠ 生成失败：$e', kind: 'text'));
+      });
+      store.updateConversation(_conv!);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+    _scrollToBottom();
+  }
+
+  /// 对话满 5 轮后让 AI 生成标题（仅一次）
+  void _maybeAutoTitle(AiProvider provider, String key, String model) {
+    final conv = _conv!;
+    if (conv.autoTitled) return;
+    final userRounds = conv.messages.where((m) => m.role == 'user').length;
+    if (userRounds < 5) return;
+    conv.autoTitled = true;
+    final history = conv.messages
+        .take(12)
+        .map((m) => '${m.role == 'user' ? '用户' : 'AI'}: ${m.content}')
+        .join('\n');
+    final buf = StringBuffer();
+    AiApi.chatStream(
+      provider: provider,
+      apiKey: key,
+      model: model,
+      messages: [
+        AiMessage('system',
+            '根据以下对话内容，生成一个不超过 15 个字的简短标题。只输出标题本身，不要标点结尾，不要解释。'),
+        AiMessage('user', history),
+      ],
+      onToken: (t) => buf.write(t),
+    ).then((_) {
+      final title = buf.toString().trim().replaceAll('\n', ' ');
+      if (title.isNotEmpty && mounted) {
+        conv.title = title.length > 20 ? title.substring(0, 20) : title;
+        AiStore.instance.updateConversation(conv);
+      }
+    }).catchError((_) {});
   }
 
   void _markError(String err) {
@@ -255,162 +400,296 @@ class _AiChatPageState extends State<AiChatPage> {
     });
   }
 
+  // ---------------- 附件 ----------------
+
+  Future<String> _saveBytes(List<int> bytes, String name) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final folder = Directory('${dir.path}/ai_attachments');
+    if (!folder.existsSync()) folder.createSync(recursive: true);
+    final file = File('${folder.path}/$name');
+    await file.writeAsBytes(bytes);
+    return file.path;
+  }
+
+  Future<List<int>> _download(String url) async {
+    final res = await Dio().get<List<int>>(url,
+        options: Options(responseType: ResponseType.bytes));
+    return res.data!;
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final x = await picker.pickImage(source: source, imageQuality: 85);
+      if (x == null) return;
+      final bytes = await x.readAsBytes();
+      final path = await _saveBytes(
+          bytes, 'img_${DateTime.now().millisecondsSinceEpoch}.${x.name.split('.').last}');
+      setState(() {
+        _pendingAttachments
+            .add({'type': 'image', 'name': x.name, 'path': path});
+      });
+    } catch (e) {
+      if (mounted) context.showMessage(message: '选择图片失败：$e');
+    }
+  }
+
+  Future<void> _pickFile() async {
+    try {
+      const typeGroup = XTypeGroup(label: '文件');
+      final x = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (x == null) return;
+      final bytes = await x.readAsBytes();
+      final path = await _saveBytes(
+          bytes, 'file_${DateTime.now().millisecondsSinceEpoch}_${x.name}');
+      setState(() {
+        _pendingAttachments
+            .add({'type': 'file', 'name': x.name, 'path': path});
+      });
+    } catch (e) {
+      if (mounted) context.showMessage(message: '选择文件失败：$e');
+    }
+  }
+
+  /// 长文本粘贴 → 附件
+  Future<void> _checkPaste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text ?? '';
+    if (text.length < kPasteToAttachmentThreshold) {
+      if (text.isNotEmpty) {
+        _input.text = _input.text + text;
+        _input.selection = TextSelection.collapsed(offset: _input.text.length);
+        setState(() {});
+      }
+      return;
+    }
+    // 判断类型：markdown / 代码 / 纯文本
+    var ext = 'txt';
+    if (RegExp(r'^#{1,6}\s|\*\*|- \[|\[.+\]\(.+\)|```', multiLine: true)
+        .hasMatch(text)) {
+      ext = 'md';
+    } else if (RegExp(r'^\s*(import |package |void |class |function |def |#include)',
+            multiLine: true)
+        .hasMatch(text)) {
+      ext = 'txt';
+    }
+    final path = await _saveBytes(utf8.encode(text),
+        'paste_${DateTime.now().millisecondsSinceEpoch}.$ext');
+    setState(() {
+      _pendingAttachments
+          .add({'type': 'file', 'name': '粘贴文本.$ext', 'path': path});
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('已将长文本转为附件（${text.length} 字）'),
+      action: SnackBarAction(
+        label: '返回',
+        onPressed: () {
+          setState(() {
+            _pendingAttachments
+                .removeWhere((a) => a['path'] == path);
+            _input.text = text;
+            _input.selection =
+                TextSelection.collapsed(offset: _input.text.length);
+          });
+          try {
+            File(path).deleteSync();
+          } catch (_) {}
+        },
+      ),
+      duration: const Duration(seconds: 4),
+    ));
+  }
+
+  // ---------------- 语音 ----------------
+
+  Future<void> _startVoice() async {
+    if (!_speechReady) {
+      _speechReady = await _speech.initialize();
+    }
+    if (!_speechReady) {
+      if (mounted) context.showMessage(message: '语音识别不可用，请检查麦克风权限');
+      return;
+    }
+    setState(() => _listening = true);
+    await _speech.listen(
+      onResult: (r) {
+        _input.text = r.recognizedWords;
+        _input.selection =
+            TextSelection.collapsed(offset: _input.text.length);
+        setState(() {});
+      },
+      localeId: 'zh_CN',
+      listenOptions: SpeechListenOptions(partialResults: true),
+    );
+  }
+
+  Future<void> _stopVoice() async {
+    await _speech.stop();
+    if (mounted) setState(() => _listening = false);
+  }
+
+  // ---------------- UI ----------------
+
   @override
   Widget build(BuildContext context) {
-    final conv = _conv;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(conv?.title ?? "AI Chat".tl,
-            maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: [
-          if (conv?.bookRef != null)
-            IconButton(
-              tooltip: "保存最后一条回答为注释",
-              icon: const Icon(Icons.note_add_outlined),
-              onPressed: _saveLastAsAnnotation,
-            ),
-          if (_sending)
-            IconButton(
-              tooltip: "停止".tl,
-              icon: const Icon(Icons.stop_circle_outlined),
-              onPressed: () => _cancel?.cancel(),
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: conv == null
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: conv.messages.length,
-                    itemBuilder: (context, i) =>
-                        _buildBubble(conv.messages[i], i),
-                  ),
-          ),
-          _buildInputBar(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBubble(AiMessage m, int index) {
-    final isUser = m.role == 'user';
-    final isLast = index == (_conv?.messages.length ?? 0) - 1;
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: () {
-          Clipboard.setData(ClipboardData(text: m.content));
-          context.showMessage(message: "Copied".tl);
-        },
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          constraints:
-              BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
-          decoration: BoxDecoration(
-            color: isUser
-                ? context.colorScheme.primaryContainer
-                : context.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (m.content.isEmpty && !isUser && _sending && isLast)
-                const SizedBox(
-                    width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-              else
-                SelectableText(m.content),
-              if (!isUser &&
-                  _conv?.bookRef != null &&
-                  m.content.isNotEmpty &&
-                  !(_sending && isLast))
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact),
-                    icon: const Icon(Icons.note_add_outlined, size: 16),
-                    label: Text("存为注释".tl, style: const TextStyle(fontSize: 12)),
-                    onPressed: () => _saveAnnotation(m),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInputBar() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-        child: Row(
+    final size = MediaQuery.of(context).size;
+    final drawerWidth = size.width * 0.8;
+    return GestureDetector(
+      onHorizontalDragStart: (d) {
+        _drawerDragging = true;
+      },
+      onHorizontalDragUpdate: (d) {
+        if (!_drawerDragging) return;
+        final delta = d.delta.dx / drawerWidth;
+        final t = (_drawerT + delta).clamp(0.0, 1.0);
+        if (t != _drawerT) setState(() => _drawerT = t);
+      },
+      onHorizontalDragEnd: (d) {
+        _drawerDragging = false;
+        setState(() {
+          _drawerT = _drawerT > 0.35 ? 1.0 : 0.0;
+        });
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        body: Stack(
           children: [
-            Expanded(
-              child: TextField(
-                controller: _input,
-                minLines: 1,
-                maxLines: 5,
-                decoration: InputDecoration(
-                  hintText: "输入问题…".tl,
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24)),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  isDense: true,
+            // 主对话区（抽屉打开时右移 1/5 的剩余部分）
+            _buildChatBody(context),
+            // 遮罩：抽屉开着时点击右侧 1/5 返回
+            if (_drawerT > 0)
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: _closeDrawer,
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.35 * _drawerT),
+                  ),
                 ),
-                onSubmitted: (_) => _send(),
               ),
-            ),
-            const SizedBox(width: 8),
-            IconButton.filled(
-              onPressed: _sending ? null : _send,
-              icon: const Icon(Icons.send),
-            ),
+            // 历史抽屉（左 4/5）
+            if (_drawerT > 0)
+              Positioned(
+                left: -drawerWidth * (1 - _drawerT),
+                top: 0,
+                bottom: 0,
+                width: drawerWidth,
+                child: AiHistoryDrawer(
+                  currentId: _conv?.id,
+                  onOpen: _openConversation,
+                  onNew: _newConversation,
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  void _saveLastAsAnnotation() {
-    if (_conv == null) return;
-    for (var i = _conv!.messages.length - 1; i >= 0; i--) {
-      final m = _conv!.messages[i];
-      if (m.role == 'assistant' && m.content.isNotEmpty) {
-        _saveAnnotation(m);
-        return;
-      }
-    }
-    context.showMessage(message: "还没有可保存的回答");
+  Widget _buildChatBody(BuildContext context) {
+    final messages = _conv?.messages ?? const <AiMessage>[];
+    return SafeArea(
+      child: Column(
+        children: [
+          _buildTopBar(),
+          Expanded(
+            child: messages.isEmpty
+                ? _buildGreeting()
+                : ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.all(12),
+                    itemCount: messages.length,
+                    itemBuilder: (context, i) =>
+                        _buildBubble(messages[i], i),
+                  ),
+          ),
+          if (_sending)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: TextButton.icon(
+                icon: const Icon(Icons.stop_circle_outlined, size: 18),
+                label: Text("停止".tl),
+                onPressed: () => _cancel?.cancel(),
+              ),
+            ),
+          _buildInputArea(),
+        ],
+      ),
+    );
   }
 
-  void _saveAnnotation(AiMessage m) {
-    final conv = _conv;
-    if (conv == null || conv.bookRef == null) return;
-    final idx = conv.messages.indexOf(m);
-    final question =
-        (idx > 0 && conv.messages[idx - 1].role == 'user')
-            ? conv.messages[idx - 1].content
-            : '';
-    AnnotationStore.instance.add(AiAnnotation(
-      id: 'ask-${DateTime.now().millisecondsSinceEpoch}',
-      bookRef: conv.bookRef!,
-      bookTitle: conv.bookContext?.split('\n').first
-              .replaceFirst('书名：', '') ??
-          conv.title,
-      type: 'ask',
-      question: question,
-      content: m.content,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
-    ));
-    context.showMessage(message: "已保存为注释".tl);
+  /// 顶栏：三杠 + 模型选择 + 新对话
+  Widget _buildTopBar() {
+    final media = _currentMediaModel;
+    final modelName = media?.name ??
+        _currentCatalogModel?.name ??
+        (_currentModelId.isEmpty ? '选择模型' : _currentModelId);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => setState(() => _drawerT = 1),
+          ),
+          Expanded(
+            child: Center(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: _showModelPicker,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: context.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(modelName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                      const Icon(Icons.keyboard_arrow_down, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: "新对话",
+            icon: const Icon(Icons.add_comment_outlined),
+            onPressed: _newConversation,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 空对话问候页
+  Widget _buildGreeting() {
+    final name = appdata.settings['profileNickname']?.toString() ?? '';
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.smart_toy_outlined,
+              size: 72, color: context.colorScheme.primary),
+          const SizedBox(height: 16),
+          Text(
+            name.isEmpty ? '嗨，今天要做点什么' : '嗨 $name，今天要做点什么',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          Text('支持文本对话 / 图片生成 / 视频生成',
+              style: TextStyle(color: context.colorScheme.outline)),
+        ],
+      ),
+    );
   }
 }
