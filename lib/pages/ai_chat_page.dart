@@ -553,6 +553,15 @@ class AiHomePageState extends State<AiChatListPage>
 
   // ---------------- 语音 ----------------
 
+  /// 识别中的文字（松开后才写入输入框）
+  String _voiceText = '';
+
+  /// 音量采样（驱动波形动画）
+  final List<double> _voiceLevels = [];
+
+  /// 是否处于上滑取消区域
+  bool _voiceCancel = false;
+
   Future<void> _startVoice() async {
     if (!_speechReady) {
       _speechReady = await _speech.initialize();
@@ -561,22 +570,132 @@ class AiHomePageState extends State<AiChatListPage>
       if (mounted) context.showMessage(message: '语音识别不可用，请检查麦克风权限');
       return;
     }
-    setState(() => _listening = true);
+    setState(() {
+      _listening = true;
+      _voiceText = '';
+      _voiceCancel = false;
+      _voiceLevels.clear();
+    });
     await _speech.listen(
       onResult: (r) {
-        _input.text = r.recognizedWords;
-        _input.selection =
-            TextSelection.collapsed(offset: _input.text.length);
-        setState(() {});
+        _voiceText = r.recognizedWords;
+        if (mounted) setState(() {});
+      },
+      onSoundLevel: (level) {
+        // level 大致 [-2, 10]，归一化到 [0, 1]
+        final v = ((level + 2) / 12).clamp(0.0, 1.0);
+        _voiceLevels.add(v);
+        if (_voiceLevels.length > 64) _voiceLevels.removeAt(0);
+        if (mounted) setState(() {});
       },
       localeId: 'zh_CN',
       listenOptions: SpeechListenOptions(partialResults: true),
     );
   }
 
-  Future<void> _stopVoice() async {
-    await _speech.stop();
-    if (mounted) setState(() => _listening = false);
+  /// 松开结束：cancel=true 丢弃识别结果；否则写入输入框并发送（仿 Kimi 松开发送）
+  Future<void> _stopVoice({bool cancel = false}) async {
+    final text = _voiceText.trim();
+    if (cancel) {
+      await _speech.cancel();
+    } else {
+      await _speech.stop();
+    }
+    if (mounted) {
+      setState(() {
+        _listening = false;
+        _voiceCancel = false;
+      });
+    }
+    if (!cancel && text.isNotEmpty && mounted) {
+      _input.text = text;
+      _input.selection =
+          TextSelection.collapsed(offset: _input.text.length);
+      _send();
+    }
+    _voiceText = '';
+  }
+
+  /// Kimi 风格语音输入面板：识别文字预览 + 音量波形 + 松开发送/上滑取消
+  Widget _buildVoiceOverlay() {
+    final cs = context.colorScheme;
+    // 取最近 28 个采样，不足则补低位
+    const barCount = 28;
+    final samples = _voiceLevels.length >= barCount
+        ? _voiceLevels.sublist(_voiceLevels.length - barCount)
+        : List.filled(barCount - _voiceLevels.length, 0.06) +
+            _voiceLevels;
+    final color =
+        _voiceCancel ? cs.error : cs.primary;
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Container(
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 20,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, 20 + MediaQuery.of(context).padding.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_voiceText.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  '$_voiceText …',
+                  style: const TextStyle(fontSize: 15),
+                ),
+              ),
+            SizedBox(
+              height: 56,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  for (final v in samples)
+                    Container(
+                      width: 5,
+                      height: 6 + v * 44,
+                      margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _voiceCancel ? "取消输入" : "松开发送",
+              style: TextStyle(
+                fontSize: 14,
+                color: _voiceCancel ? cs.error : cs.outline,
+                fontWeight:
+                    _voiceCancel ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ---------------- UI ----------------
@@ -645,6 +764,8 @@ class AiHomePageState extends State<AiChatListPage>
                   ),
                 ),
               ),
+              // 语音输入面板（Kimi 风格）
+              if (_listening) _buildVoiceOverlay(),
               // 遮罩：抽屉开着时点击对话区（右 1/5）返回
               if (_drawerT > 0)
                 Positioned.fill(

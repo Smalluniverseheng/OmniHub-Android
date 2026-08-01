@@ -20,11 +20,13 @@ class OmniPlanCard {
   const OmniPlanCard(this.key, this.name, this.quotaMb, this.roles);
 }
 
-/// 网页版 PLAN_CARDS 的镜像（勿擅自改数值，主打服务）
+/// 会员等级 → 云同步存储空间（用户 2026-08 新规）：
+/// 普通 5MB / 进阶 500MB / 会员 1GB / 高级会员 5GB
 const List<OmniPlanCard> kOmniPlanCards = [
-  OmniPlanCard('basic', '普通会员', 1024, ['user']),
-  OmniPlanCard('advanced', '高级会员', 5120, ['advanced']),
-  OmniPlanCard('vip', '顶级会员', 10240, ['vip', 'agent', 'admin']),
+  OmniPlanCard('user', '普通', 5, ['user', 'guest']),
+  OmniPlanCard('advanced', '进阶', 500, ['advanced']),
+  OmniPlanCard('vip', '会员', 1024, ['vip']),
+  OmniPlanCard('svip', '高级会员', 5120, ['svip', 'agent', 'admin']),
 ];
 
 class OmniProfile {
@@ -84,9 +86,9 @@ class OmniProfile {
     return planCard?.quotaMb ?? 0;
   }
 
-  /// 会员展示名（未登录/免费用户返回 null）
+  /// 会员展示名（未登录用户返回 null）
   String? get membershipLabel {
-    if (isAdmin) return '顶级会员';
+    if (isAdmin) return '管理员';
     return planCard?.name;
   }
 

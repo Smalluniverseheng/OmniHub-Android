@@ -154,6 +154,10 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     findSearchSources();
+    // 没有任何漫画源时默认切到小说搜索（阅读3.0 书源）
+    if (searchSources.isEmpty && _media == 'comic') {
+      _media = 'novel';
+    }
     var defaultSearchTarget = appdata.settings['defaultSearchTarget'];
     if (defaultSearchTarget == "_aggregated_") {
       aggregatedSearch = true;
@@ -222,7 +226,7 @@ class _SearchPageState extends State<SearchPage> {
     return NetworkError(
       message: msg,
       retry: onTap,
-      withAppbar: true,
+      withAppbar: false,
       buttonText: "Manage".tl,
     );
   }
@@ -268,7 +272,16 @@ class _SearchPageState extends State<SearchPage> {
       );
     }
     if (searchSources.isEmpty) {
-      return buildEmpty();
+      // 无可用漫画源时仍要露出「漫画 / 小说」切换，避免整页卡死在错误页
+      return Scaffold(
+        body: Column(
+          children: [
+            SizedBox(height: context.padding.top),
+            _buildMediaToggle(),
+            Expanded(child: buildEmpty()),
+          ],
+        ),
+      );
     }
     return Scaffold(
       body: SmoothCustomScrollView(

@@ -5,9 +5,12 @@
 /// 记录 key: `{sourceKey}|{comicId}`，冲突按 updated_at last-write-wins。
 library bookshelf_sync;
 
+import 'dart:convert';
+
 import 'package:venera/foundation/comic_type.dart';
 import 'package:venera/foundation/favorites.dart';
 import 'package:venera/omnihub/sync/omni_sync.dart';
+import 'package:venera/omnihub/sync/profile.dart';
 
 class BookshelfSyncResult {
   final int pushed;
@@ -50,6 +53,20 @@ class BookshelfSync {
           'time': c.time,
           'platform': 'app',
         };
+      }
+      // 会员等级存储配额校验：普通5MB/进阶500MB/会员1GB/高级会员5GB
+      try {
+        final profile = await OmniProfileService.instance.fetch();
+        final quotaMb = profile?.effectiveQuotaMb ?? 0;
+        if (quotaMb > 0) {
+          final approxBytes = jsonEncode(records).length;
+          if (approxBytes > quotaMb * 1024 * 1024) {
+            return BookshelfSyncResult(
+                0, 0, '云存储空间不足（当前配额 ${OmniProfile.fmtMb(quotaMb)}），请升级会员');
+          }
+        }
+      } catch (_) {
+        // 配额查询失败不阻塞同步
       }
       await OmniSync.instance.pushRecords('bookshelf', records);
 

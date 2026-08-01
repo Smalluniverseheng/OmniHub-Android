@@ -306,7 +306,7 @@ class _CloudSyncManagePageState extends State<CloudSyncManagePage> {
   @override
   Widget build(BuildContext context) {
     final loggedIn = OmniSync.instance.isLoggedIn;
-    // 额度按规划表：storage_quota_mb 优先，否则套餐（普通1GB/高级5GB/顶级10GB），免费0
+    // 额度按规划表：storage_quota_mb 优先，否则套餐（普通5MB/进阶500MB/会员1GB/高级会员5GB），免费0
     final quotaMb = _profile?.effectiveQuotaMb ?? 0;
     final usedMb = _profile?.storageUsedMb ?? 0;
     final membershipLabel = _profile?.membershipLabel;

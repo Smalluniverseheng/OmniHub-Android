@@ -130,7 +130,7 @@ class AiProviders {
       base: 'https://api.xiaomimimo.com',
       keySlug: 'mimo',
       color: 0xFFFF6900,
-      iconLobe: 'mimo-color',
+      iconLobe: 'xiaomimimo',
       iconSimple: 'xiaomi',
       models: ['mimo-v2.5', 'mimo-v2.5-pro'],
     ),

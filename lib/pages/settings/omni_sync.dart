@@ -11,6 +11,7 @@ class OmniSyncSettings extends StatefulWidget {
 class _OmniSyncSettingsState extends State<OmniSyncSettings> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _nicknameController = TextEditingController();
   bool _busy = false;
   String _message = '';
 
@@ -80,12 +81,18 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
   Future<void> _signUp() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+    final nickname = _nicknameController.text.trim();
+    if (nickname.isEmpty) {
+      setState(() => _message = '请填写昵称');
+      return;
+    }
     setState(() {
       _busy = true;
       _message = '';
     });
     try {
-      final result = await OmniSync.instance.signUp(email, password);
+      final result =
+          await OmniSync.instance.signUp(email, password, name: nickname);
       if (result == 'verify') {
         setState(() {
           _busy = false;
@@ -260,6 +267,16 @@ class _OmniSyncSettingsState extends State<OmniSyncSettings> {
             child: Text(
               "登录 OmniHub 账号后，书架可与网页版互通同步".tl,
               style: TextStyle(color: context.colorScheme.outline),
+            ),
+          ).toSliver(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: TextField(
+              controller: _nicknameController,
+              decoration: InputDecoration(
+                labelText: "昵称（注册必填）".tl,
+                border: const OutlineInputBorder(),
+              ),
             ),
           ).toSliver(),
           Padding(
