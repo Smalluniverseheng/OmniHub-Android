@@ -9,6 +9,8 @@ library omni_profile;
 
 import 'package:dio/dio.dart';
 
+import 'package:venera/foundation/appdata.dart';
+
 import 'omni_sync.dart';
 
 class OmniPlanCard {
@@ -31,6 +33,7 @@ const List<OmniPlanCard> kOmniPlanCards = [
 
 class OmniProfile {
   final String nickname;
+  final String avatarUrl;
   final String role;
   final String plan;
   final DateTime? planExpiresAt;
@@ -41,6 +44,7 @@ class OmniProfile {
 
   const OmniProfile({
     this.nickname = '',
+    this.avatarUrl = '',
     this.role = '',
     this.plan = '',
     this.planExpiresAt,
@@ -58,6 +62,7 @@ class OmniProfile {
     }
     return OmniProfile(
       nickname: (j['nickname'] ?? '').toString(),
+      avatarUrl: (j['avatar_url'] ?? '').toString(),
       role: (j['role'] ?? '').toString(),
       plan: (j['plan'] ?? '').toString(),
       planExpiresAt: expires,
@@ -143,6 +148,7 @@ class OmniProfileService {
             : data;
         if (raw['role'] != null || raw['plan'] != null) {
           _cached = OmniProfile.fromJson(raw);
+          _persistLocal(_cached!);
           return _cached;
         }
       }
@@ -156,7 +162,7 @@ class OmniProfileService {
         '/rest/v1/profiles',
         queryParameters: {
           'select':
-              'nickname,role,plan,plan_expires_at,is_admin,balance,storage_used_mb,storage_quota_mb',
+              'nickname,avatar_url,role,plan,plan_expires_at,is_admin,balance,storage_used_mb,storage_quota_mb',
           'id': 'eq.${session.userId}',
         },
         options: Options(headers: {
@@ -168,11 +174,26 @@ class OmniProfileService {
       if (rows is List && rows.isNotEmpty && rows.first is Map) {
         _cached =
             OmniProfile.fromJson((rows.first as Map).cast<String, dynamic>());
+        _persistLocal(_cached!);
         return _cached;
       }
     } catch (_) {
       // 无 profiles 行或网络失败
     }
     return _cached;
+  }
+
+  /// 云端资料回写本地缓存：网络慢/失败时设置页仍能显示昵称与头像
+  void _persistLocal(OmniProfile p) {
+    try {
+      final s = appdata.settings;
+      if (p.nickname.isNotEmpty) {
+        s['profileNickname'] = p.nickname;
+      }
+      if (p.avatarUrl.isNotEmpty) {
+        s['profileAvatarUrl'] = p.avatarUrl;
+      }
+      appdata.saveData();
+    } catch (_) {}
   }
 }

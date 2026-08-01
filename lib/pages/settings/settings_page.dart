@@ -218,9 +218,17 @@ class _SettingsPageState extends State<SettingsPage> {
         : (_profile?.nickname.isNotEmpty == true
             ? _profile!.nickname
             : (session?.email ?? ''));
+    // 头像：本地文件 > 本地缓存的云端 URL > 云端 profile（网络慢也不回退）
     final avatarPath = (appdata.settings['profileAvatar'] as String?) ?? '';
-    final hasAvatar =
-        avatarPath.isNotEmpty && File(avatarPath).existsSync();
+    final avatarUrl = (appdata.settings['profileAvatarUrl'] as String?) ??
+        (_profile?.avatarUrl ?? '');
+    ImageProvider? avatarImage;
+    if (avatarPath.isNotEmpty && File(avatarPath).existsSync()) {
+      avatarImage = FileImage(File(avatarPath));
+    } else if (avatarUrl.isNotEmpty) {
+      avatarImage = NetworkImage(avatarUrl);
+    }
+    final hasAvatar = avatarImage != null;
     final membership = _profile?.membershipLabel;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
@@ -243,7 +251,7 @@ class _SettingsPageState extends State<SettingsPage> {
               CircleAvatar(
                 radius: 28,
                 backgroundColor: colors.primaryContainer,
-                backgroundImage: hasAvatar ? FileImage(File(avatarPath)) : null,
+                backgroundImage: avatarImage,
                 child: hasAvatar
                     ? null
                     : session == null

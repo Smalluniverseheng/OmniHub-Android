@@ -383,7 +383,9 @@ class AiApi {
     void Function(String data) onData,
   ) async {
     final buffer = StringBuffer();
-    await for (final chunk in stream.transform(utf8.decoder)) {
+    // utf8.decoder 泛型是 List<int>，Stream<Uint8List> 需先 cast 才能 transform
+    await for (final chunk in stream.cast<List<int>>().transform(utf8.decoder)) {
+      buffer.write(chunk);
       buffer.write(chunk);
       final text = buffer.toString();
       // SSE 事件以空行分隔；按行处理，保留未完成行
@@ -419,7 +421,8 @@ class AiApi {
     try {
       final data = e.response?.data;
       if (data is ResponseBody) {
-        final body = await utf8.decoder.bind(data.stream).join();
+        final body =
+            await utf8.decoder.bind(data.stream.cast<List<int>>()).join();
         final j = jsonDecode(body);
         final err = j['error'];
         if (err is Map && err['message'] != null) {
