@@ -122,12 +122,23 @@ var java = {
 };
 ''';
 
+  /// 跨规则持久变量（对应 Legado 的 java.put/java.get，源级共享）
+  static final Map<String, dynamic> _jsVars = {};
+
+  /// java.ajax 预抓取缓存：URL → 响应文本
+  static final Map<String, String> _ajaxCache = {};
+
   /// 执行 JS 段；失败降级为空字符串
   static dynamic runJs(String code, Object? result, EvalContext context) {
     try {
       final wrapper = StringBuffer()
         ..write('(function(){')
         ..write(_jsPreamble)
+        ..write('__legadoVars=')
+        ..write(jsonEncode(_jsVars))
+        ..write(';var __ajaxCache=')
+        ..write(jsonEncode(_ajaxCache))
+        ..write(';java.ajax=function(u){var s=String(u);return __ajaxCache[s]||"";};')
         ..write('var result=')
         ..write(jsonEncode(result?.toString() ?? ''))
         ..write(';var book=')
@@ -136,13 +147,113 @@ var java = {
         ..write(jsonEncode(context.chapter ?? {}))
         ..write(';var baseUrl=')
         ..write(jsonEncode(context.baseUrl))
-        ..write(';var cookie={};var cache={};return eval(')
+        ..write(';var cookie={};var cache={};var __r=eval(')
         ..write(jsonEncode(code))
-        ..write(');})()');
+        ..write(');return JSON.stringify({r:(__r===null||__r===undefined)?"":__r,v:__legadoVars});})()');
       final out = JsEngine().runCode(wrapper.toString());
+      if (out is String && out.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(out);
+          if (decoded is Map) {
+            // 合并 java.put 写入的变量，供后续规则读取
+            if (decoded['v'] is Map) {
+              (decoded['v'] as Map).forEach((k, v) {
+                _jsVars[k.toString()] = v;
+              });
+            }
+            return decoded['r'] ?? '';
+          }
+        } catch (_) {}
+        return out;
+      }
       return out ?? '';
     } catch (_) {
       return '';
+    }
+  }
+
+  /// 从规则中提取全部 JS 代码段（<js>…</js>、{{}} 模板、@js: 尾段）
+  static List<String> _extractJsCodes(String rule) {
+    final out = <String>[];
+    for (final m in RegExp(r'<js>([\s\S]*?)</js>').allMatches(rule)) {
+      out.add(m.group(1)!);
+    }
+    for (final m in RegExp(r'\{\{([\s\S]*?)\}\}').allMatches(rule)) {
+      out.addAll(_extractJsCodes(m.group(1)!));
+    }
+    final noJsBlock = rule.replaceAll(RegExp(r'<js>[\s\S]*?</js>'), '');
+    for (final seg in splitTop(noJsBlock, '||')) {
+      for (final s2 in splitTop(seg, '&&')) {
+        final i = topLevelIndexOf(s2, '@js:');
+        if (i > -1) out.add(s2.substring(i + 4));
+      }
+    }
+    return out;
+  }
+
+  /// 预抓取规则 JS 中 java.ajax(...) 的目标地址。
+  ///
+  /// QuickJS 是同步沙箱，无法在 JS 内直接发起异步网络请求；
+  /// 这里先用“记录型 ajax 桩”跑一遍 JS 收集 URL，在 Dart 侧真实请求，
+  /// 结果写入 [_ajaxCache]，正式执行时 java.ajax 同步回读缓存。
+  static Future<void> prefetchAjax(dynamic ruleRaw, EvalContext ctx,
+      {BookSource? src}) async {
+    if (ruleRaw == null) return;
+    final rule = ruleRaw.toString();
+    if (!rule.contains('ajax')) return;
+    final codes = _extractJsCodes(rule)
+        .where((c) => c.contains('ajax'))
+        .toList();
+    if (codes.isEmpty) return;
+    if (_ajaxCache.length > 300) _ajaxCache.clear();
+
+    final urls = <String>{};
+    for (final code in codes) {
+      try {
+        final wrapper = StringBuffer()
+          ..write('(function(){')
+          ..write(_jsPreamble)
+          ..write('__legadoVars=')
+          ..write(jsonEncode(_jsVars))
+          ..write(';var __ajaxUrls=[];'
+              'java.ajax=function(u){__ajaxUrls.push(String(u));return "";};')
+          ..write('var result=')
+          ..write(jsonEncode(ctx.text ?? ''))
+          ..write(';var book=')
+          ..write(jsonEncode(ctx.book ?? {}))
+          ..write(';var chapter=')
+          ..write(jsonEncode(ctx.chapter ?? {}))
+          ..write(';var baseUrl=')
+          ..write(jsonEncode(ctx.baseUrl))
+          ..write(';var cookie={};var cache={};try{eval(')
+          ..write(jsonEncode(code))
+          ..write(');}catch(e){}return JSON.stringify(__ajaxUrls);})()');
+        final out = JsEngine().runCode(wrapper.toString());
+        if (out is String && out.isNotEmpty) {
+          final arr = jsonDecode(out);
+          if (arr is List) {
+            for (final u in arr) {
+              final s = u.toString();
+              if (RegExp(r'^(https?:)?//', caseSensitive: false)
+                  .hasMatch(s)) {
+                urls.add(s);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    for (final u in urls) {
+      final full = absUrl(u, ctx.baseUrl);
+      if (full.isEmpty || _ajaxCache.containsKey(u)) continue;
+      try {
+        final resp = await fetchText(full, src: src);
+        _ajaxCache[u] = resp.text ?? '';
+        if (full != u) _ajaxCache[full] = resp.text ?? '';
+      } catch (_) {
+        _ajaxCache[u] = '';
+      }
     }
   }
 
@@ -876,10 +987,16 @@ var java = {
     final resp = await fetchText(req.url,
         method: req.method, headers: req.headers, body: req.body, src: src);
     final rs = src.ruleSearch;
+    await prefetchAjax(rs['bookList'], resp, src: src);
     final items = evalItems(rs['bookList']?.toString(), resp);
     final out = <NovelBook>[];
     for (final ictx in items) {
       try {
+        for (final k in const [
+          'name', 'author', 'intro', 'coverUrl', 'bookUrl', 'lastChapter'
+        ]) {
+          await prefetchAjax(rs[k], ictx, src: src);
+        }
         var name = evalRule(rs['name'], ictx, false).toString();
         var bookUrl = evalRule(rs['bookUrl'], ictx, false).toString();
         if (bookUrl.isEmpty &&
@@ -942,6 +1059,7 @@ var java = {
     final resp = await fetchText(req.url,
         method: req.method, headers: req.headers, body: req.body, src: src);
     final re = src.ruleExplore.isNotEmpty ? src.ruleExplore : src.ruleSearch;
+    await prefetchAjax(re['bookList'], resp, src: src);
     final items = evalItems(re['bookList']?.toString(), resp);
     final out = <NovelBook>[];
     for (final ictx in items) {
@@ -986,6 +1104,9 @@ var java = {
     }
     final resp = await fetchText(book.url, src: src);
     final ri = src.ruleBookInfo;
+    for (final k in ri.keys) {
+      await prefetchAjax(ri[k], resp, src: src);
+    }
     String v(String? r) => decodeEntities(evalRule(r, resp, false).toString());
     final name = v(ri['name']?.toString());
     final toc =
@@ -1023,6 +1144,7 @@ var java = {
     while (url.isNotEmpty && page < 5) {
       final resp = await fetchText(url, src: src);
       resp.book = book.toJson();
+      await prefetchAjax(rt['chapterList'], resp, src: src);
       final items = evalItems(rt['chapterList']?.toString(), resp);
 
       if (items.isEmpty &&
@@ -1039,6 +1161,8 @@ var java = {
 
       for (final ictx in items) {
         try {
+          await prefetchAjax(rt['chapterName'], ictx, src: src);
+          await prefetchAjax(rt['chapterUrl'], ictx, src: src);
           var name = evalRule(rt['chapterName'], ictx, false).toString();
           if (name.isEmpty && ictx.element != null) {
             name = trim(ictx.element!.text);
@@ -1109,6 +1233,8 @@ var java = {
     while (url.isNotEmpty && page < 3) {
       final resp = await fetchText(url, src: src);
       resp.chapter = {'name': chapter.name, 'url': chapter.url};
+      await prefetchAjax(rc['content'], resp, src: src);
+      await prefetchAjax(rc['nextContentUrl'], resp, src: src);
       final vals = evalRule(rc['content'], resp, true) as List;
       if (vals.isNotEmpty) chunks.add(vals.join('\n'));
 

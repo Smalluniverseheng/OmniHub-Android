@@ -47,6 +47,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoreLauncherEntryIfNeeded()
 
         if (intent?.action == Intent.ACTION_SEND) {
             if (intent.type == "text/plain") {
@@ -65,6 +66,29 @@ class MainActivity : FlutterFragmentActivity() {
                 if (text != null)
                     handleSharedText(text)
             }
+        }
+    }
+
+    private fun restoreLauncherEntryIfNeeded() {
+        try {
+            val pm = packageManager
+            val mainState = pm.getComponentEnabledSetting(componentName)
+            val planetComp = android.content.ComponentName(
+                packageName,
+                "com.github.wgh136.venera.MainActivityPlanet"
+            )
+            val planetState = pm.getComponentEnabledSetting(planetComp)
+            if (mainState == android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED &&
+                planetState != android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            ) {
+                pm.setComponentEnabledSetting(
+                    componentName,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                )
+            }
+        } catch (_: Exception) {
+            // 忽略：恢复入口失败不影响应用内功能
         }
     }
 
@@ -166,17 +190,18 @@ class MainActivity : FlutterFragmentActivity() {
                     val pm = packageManager
                     val pkg = packageName
                     val mainComp = componentName
-                    val planetComp = android.content.ComponentName(pkg, "$pkg.MainActivityPlanet")
+                    val planetComp = android.content.ComponentName(pkg, "com.github.wgh136.venera.MainActivityPlanet")
+                    val enableFirst = if (alias == "planet") planetComp else mainComp
+                    val disableSecond = if (alias == "planet") mainComp else planetComp
+                    // 先启用新入口，再停用旧入口，避免桌面启动器出现“应用消失”的空窗期。
                     pm.setComponentEnabledSetting(
-                        mainComp,
-                        if (alias == "planet") android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-                        else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        enableFirst,
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                         android.content.pm.PackageManager.DONT_KILL_APP
                     )
                     pm.setComponentEnabledSetting(
-                        planetComp,
-                        if (alias == "planet") android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                        else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        disableSecond,
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                         android.content.pm.PackageManager.DONT_KILL_APP
                     )
                     res.success(true)

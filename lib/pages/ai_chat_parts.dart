@@ -763,28 +763,12 @@ extension _AiModelPicker on AiHomePageState {
             _conv ??= store.newConversation();
             _conv!.providerSlug = slug;
             _conv!.model = modelId;
-            // 切换模型：插入模型简介问候语
+            // 切换模型不再插入假对话；空会话由欢迎页展示厂商/模型介绍。
             if (changed) {
-              final catalog = AiModels.get(modelId);
-              AiMediaModel? media;
-              for (final m in kAiMediaModels) {
-                if (m.id == modelId) media = m;
-              }
-              final name = catalog?.name ?? media?.name ?? modelId;
-              final desc = catalog?.desc ?? media?.desc;
-              final caps = <String>[
-                if (catalog?.vision == true) '看图识图',
-                if (catalog?.thinking == true) '深度思考',
-                if ((catalog?.ctx ?? 0) >= 256) '超长上下文',
-                if (media?.type == 'image') '生成图片',
-                if (media?.type == 'video') '生成视频',
-              ];
-              var greet = '你好，我是$name。';
-              if (desc != null && desc.isNotEmpty) greet += desc;
-              greet += caps.isEmpty
-                  ? '我能帮你回答问题、写作、翻译、编程，有什么想聊的都可以问我。'
-                  : '我能帮你${caps.join('、')}，开始吧。';
-              _conv!.messages.add(AiMessage('assistant', greet));
+              _conv!.messages.removeWhere((m) =>
+                  m.role == 'assistant' &&
+                  m.content.startsWith('你好，我是') &&
+                  m.content.contains('我能帮你'));
             }
             store.updateConversation(_conv!);
             refresh();

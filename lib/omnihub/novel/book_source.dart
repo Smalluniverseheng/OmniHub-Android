@@ -254,7 +254,9 @@ class BookSourceManager extends ChangeNotifier {
   List<BookSource> get enabledSources => sources
       .where((e) =>
           e.enabled &&
-          (e.searchUrl != null || (e.isTauri && e.tauriType != 'webpage')))
+          ((e.searchUrl?.trim().isNotEmpty ?? false) ||
+              (e.exploreUrl?.trim().isNotEmpty ?? false) ||
+              (e.isTauri && e.tauriType != 'webpage')))
       .toList();
 
   /// 有发现/探索能力的书源

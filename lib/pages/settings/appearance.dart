@@ -143,9 +143,11 @@ class _AppearanceSettingsState extends State<AppearanceSettings> {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () async {
-        appdata.settings['appIcon'] = alias;
-        appdata.saveData();
         final ok = await AppIconSwitcher.setIcon(alias);
+        if (ok) {
+          appdata.settings['appIcon'] = alias;
+          appdata.saveData();
+        }
         if (ctx.mounted) Navigator.pop(ctx);
         if (mounted) {
           setState(() {});

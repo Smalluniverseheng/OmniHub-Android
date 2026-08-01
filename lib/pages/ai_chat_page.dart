@@ -72,9 +72,13 @@ class AiHomePageState extends State<AiChatListPage>
   /// 待发送附件 [{type, name, path}]
   final List<Map<String, String>> _pendingAttachments = [];
 
-  /// 抽屉开合 0=关闭 1=打开
-  double _drawerT = 0;
+  /// 抽屉开合动画（0=关闭 1=打开）
+  late final AnimationController _drawerCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+  );
   bool _drawerDragging = false;
+  double get _drawerT => _drawerCtrl.value;
 
   /// 语音
   final SpeechToText _speech = SpeechToText();
@@ -109,6 +113,9 @@ class AiHomePageState extends State<AiChatListPage>
       if (mounted) setState(() {});
     });
     _input.addListener(() => setState(() {}));
+    _drawerCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
     _initSpeech();
   }
 
@@ -138,6 +145,7 @@ class AiHomePageState extends State<AiChatListPage>
     _inputFocus.dispose();
     _cancel?.cancel();
     _speech.stop();
+    _drawerCtrl.dispose();
     super.dispose();
   }
 
@@ -185,7 +193,11 @@ class AiHomePageState extends State<AiChatListPage>
   }
 
   void _closeDrawer() {
-    setState(() => _drawerT = 0);
+    _drawerCtrl.animateTo(0, curve: Curves.easeOutCubic);
+  }
+
+  void _openDrawer() {
+    _drawerCtrl.animateTo(1, curve: Curves.easeOutCubic);
   }
 
   // ---------------- 发送 ----------------
@@ -579,15 +591,16 @@ class AiHomePageState extends State<AiChatListPage>
       },
       onHorizontalDragUpdate: (d) {
         if (!_drawerDragging) return;
+        _drawerCtrl.stop();
         final delta = d.delta.dx / drawerWidth;
-        final t = (_drawerT + delta).clamp(0.0, 1.0);
-        if (t != _drawerT) setState(() => _drawerT = t);
+        _drawerCtrl.value = (_drawerCtrl.value + delta).clamp(0.0, 1.0);
       },
       onHorizontalDragEnd: (d) {
         _drawerDragging = false;
-        setState(() {
-          _drawerT = _drawerT > 0.35 ? 1.0 : 0.0;
-        });
+        final velocity = d.primaryVelocity ?? 0;
+        final open = velocity > 300 ||
+            (velocity > -300 && _drawerCtrl.value > 0.32);
+        _drawerCtrl.animateTo(open ? 1 : 0, curve: Curves.easeOutCubic);
       },
       child: Scaffold(
         resizeToAvoidBottomInset: true,
@@ -610,9 +623,25 @@ class AiHomePageState extends State<AiChatListPage>
               Positioned.fill(
                 child: Transform.translate(
                   offset: Offset(drawerWidth * _drawerT, 0),
-                  child: Container(
-                    color: context.colorScheme.surface,
-                    child: _buildChatBody(context),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.horizontal(
+                      left: Radius.circular(26 * _drawerT),
+                    ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: context.colorScheme.surface,
+                        boxShadow: [
+                          if (_drawerT > 0)
+                            BoxShadow(
+                              color: Colors.black
+                                  .withValues(alpha: 0.18 * _drawerT),
+                              blurRadius: 24,
+                              offset: const Offset(-6, 0),
+                            ),
+                        ],
+                      ),
+                      child: _buildChatBody(context),
+                    ),
                   ),
                 ),
               ),
@@ -625,7 +654,7 @@ class AiHomePageState extends State<AiChatListPage>
                       onTap: _closeDrawer,
                       child: Container(
                         color:
-                            Colors.black.withValues(alpha: 0.35 * _drawerT),
+                            Colors.black.withValues(alpha: 0.10 * _drawerT),
                       ),
                     ),
                   ),
@@ -681,7 +710,7 @@ class AiHomePageState extends State<AiChatListPage>
         children: [
           IconButton(
             icon: const Icon(Icons.menu),
-            onPressed: () => setState(() => _drawerT = 1),
+            onPressed: _openDrawer,
           ),
           Expanded(
             child: Center(
@@ -722,24 +751,160 @@ class AiHomePageState extends State<AiChatListPage>
     );
   }
 
-  /// 空对话问候页
+  /// 空对话欢迎页：厂商标识 + 当前模型介绍 + 今日推荐
   Widget _buildGreeting() {
-    final name = appdata.settings['profileNickname']?.toString() ?? '';
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.smart_toy_outlined,
-              size: 72, color: context.colorScheme.primary),
-          const SizedBox(height: 16),
-          Text(
-            name.isEmpty ? '嗨，今天要做点什么' : '嗨 $name，今天要做点什么',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+    final media = _currentMediaModel;
+    final catalog = _currentCatalogModel;
+    final modelId = _currentModelId;
+    final modelName = media?.name ??
+        catalog?.name ??
+        (modelId.isEmpty ? 'OmniHub AI' : modelId);
+    final providerName = media?.provider ?? catalog?.provider ?? '';
+    final providerSlug = AiModels.keySlugOf(providerName) ??
+        _conv?.providerSlug ??
+        AiStore.instance.selectedProvider;
+    final provider = AiProviders.get(providerSlug);
+    final typeLabel = media?.type == 'image'
+        ? '图片'
+        : media?.type == 'video'
+            ? '视频'
+            : '聊天';
+    final desc = media?.desc ??
+        catalog?.desc ??
+        '支持文本对话、图片生成、视频生成与阅读辅助。';
+    final prompts = media?.type == 'image'
+        ? const [
+            '画一张赛博朋克风格的城市夜景',
+            '生成一个极简扁平风的 App 图标',
+            '做一张夏季饮品的电商促销主图',
+          ]
+        : media?.type == 'video'
+            ? const [
+                '生成一段海边日落延时视频',
+                '做一个小行星环绕的科幻短片',
+                '生成一个未来城市飞行镜头',
+              ]
+            : const [
+                '帮我写一封礼貌的请假邮件',
+                '用简单的话解释一个复杂概念',
+                '给我制定一份三天学习计划',
+              ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight - 40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (provider != null)
+                BrandIcon(
+                  lobe: provider.iconLobe,
+                  simple: provider.iconSimple,
+                  color: provider.color,
+                  letter: provider.name,
+                  size: 76,
+                )
+              else
+                Icon(Icons.smart_toy_outlined,
+                    size: 76, color: context.colorScheme.primary),
+              const SizedBox(height: 22),
+              Text(
+                '你好，我是 $modelName',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                desc,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: context.colorScheme.outline,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: context.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (provider != null) ...[
+                      BrandIcon(
+                        lobe: provider.iconLobe,
+                        simple: provider.iconSimple,
+                        color: provider.color,
+                        letter: provider.name,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Flexible(
+                      child: Text(
+                        '正在使用 $modelName · $typeLabel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '今日推荐',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: context.colorScheme.outline,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              for (final prompt in prompts)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () {
+                      _input.text = prompt;
+                      _input.selection = TextSelection.collapsed(
+                          offset: _input.text.length);
+                      _inputFocus.requestFocus();
+                      refresh();
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 13),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                            color: context.colorScheme.outlineVariant),
+                      ),
+                      child: Text(prompt,
+                          style: const TextStyle(fontSize: 14)),
+                    ),
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text('支持文本对话 / 图片生成 / 视频生成',
-              style: TextStyle(color: context.colorScheme.outline)),
-        ],
+        ),
       ),
     );
   }

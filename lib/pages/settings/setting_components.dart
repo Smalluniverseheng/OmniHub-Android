@@ -32,7 +32,7 @@ class _SwitchSetting extends StatefulWidget {
 class _SwitchSettingState extends State<_SwitchSetting> {
   @override
   Widget build(BuildContext context) {
-    var value = widget.comicId != null
+    final rawValue = widget.comicId != null
         ? appdata.settings.getReaderSetting(
             widget.comicId!,
             widget.comicSource!,
@@ -41,8 +41,7 @@ class _SwitchSettingState extends State<_SwitchSetting> {
         : widget.useDeviceSettings
         ? appdata.settings.getDeviceReaderSetting(widget.settingKey)
         : appdata.settings[widget.settingKey];
-
-    assert(value is bool);
+    final value = rawValue is bool ? rawValue : false;
 
     return ListTile(
       title: Text(widget.title),
