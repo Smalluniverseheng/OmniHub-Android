@@ -21,6 +21,7 @@ import 'package:venera/omnihub/novel/book_source.dart';
 import 'package:venera/omnihub/video/tvbox.dart';
 
 import 'omni_sync.dart';
+import 'profile.dart';
 
 class UserDataSync {
   UserDataSync._();
@@ -40,6 +41,18 @@ class UserDataSync {
         'Content-Type': 'application/json',
       };
 
+  /// 云同步为会员功能：进阶会员(500MB)及以上才开启，普通用户不同步
+  static Future<bool> _isMember() async {
+    try {
+      final p = await OmniProfileService.instance.fetch();
+      if (p == null) return false;
+      return p.isAdmin ||
+          const ['advanced', 'vip', 'svip', 'agent'].contains(p.role);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /* ---------------- 上传：书源 ---------------- */
 
   /// 本地书源变更后调用（防抖）
@@ -52,6 +65,7 @@ class UserDataSync {
     if (_pushing) return;
     final session = OmniSync.instance.session;
     if (session == null) return;
+    if (!await _isMember()) return; // 普通用户不同步
     _pushing = true;
     try {
       final rows = <Map<String, dynamic>>[];
@@ -133,6 +147,7 @@ class UserDataSync {
   static Future<void> pushApiConfigs() async {
     final session = OmniSync.instance.session;
     if (session == null) return;
+    if (!await _isMember()) return; // 普通用户不同步
     try {
       final store = AiStore.instance;
       final rows = <Map<String, dynamic>>[];
@@ -179,6 +194,7 @@ class UserDataSync {
   static Future<void> pullAll() async {
     final session = OmniSync.instance.session;
     if (session == null) return;
+    if (!await _isMember()) return; // 普通用户不同步
     await Future.wait([_pullApiConfigs(session), _pullSources(session)]);
   }
 

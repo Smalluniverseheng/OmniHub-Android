@@ -106,12 +106,12 @@ void _checkOldConfigs() {
 Future<void> _checkAppUpdates() async {
   var lastCheck = appdata.implicitData['lastCheckUpdate'] ?? 0;
   var now = DateTime.now().millisecondsSinceEpoch;
-  if (now - lastCheck < 24 * 60 * 60 * 1000) {
-    return;
+  // 漫画源更新检查保留节流（24h）；App 自身更新每次启动都查
+  if (now - lastCheck >= 24 * 60 * 60 * 1000) {
+    appdata.implicitData['lastCheckUpdate'] = now;
+    appdata.writeImplicitData();
+    ComicSourcePage.checkComicSourceUpdate();
   }
-  appdata.implicitData['lastCheckUpdate'] = now;
-  appdata.writeImplicitData();
-  ComicSourcePage.checkComicSourceUpdate();
   if (appdata.settings['checkUpdateOnStart']) {
     await checkUpdateUi(false, true);
   }

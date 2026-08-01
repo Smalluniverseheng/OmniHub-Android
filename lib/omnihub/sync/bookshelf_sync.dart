@@ -54,9 +54,17 @@ class BookshelfSync {
           'platform': 'app',
         };
       }
-      // 会员等级存储配额校验：普通5MB/进阶500MB/会员1GB/高级会员5GB
+      // 云同步为会员功能：普通/游客等级不同步（进阶500MB起）
+      // 等级存储配额校验：进阶500MB/会员1GB/高级会员5GB
       try {
         final profile = await OmniProfileService.instance.fetch();
+        final role = profile?.role ?? '';
+        final isMember = profile?.isAdmin == true ||
+            const ['advanced', 'vip', 'svip', 'agent'].contains(role);
+        if (!isMember) {
+          return const BookshelfSyncResult(
+              0, 0, '云同步需进阶会员及以上等级，普通用户暂不支持');
+        }
         final quotaMb = profile?.effectiveQuotaMb ?? 0;
         if (quotaMb > 0) {
           final approxBytes = jsonEncode(records).length;

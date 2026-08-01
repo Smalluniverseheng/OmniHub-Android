@@ -101,13 +101,25 @@ class AppUpdateInfo {
   });
 }
 
-const String _kUpdateManifest =
+/// 更新清单：优先走 Cloudflare Worker 反代（速度快、无 raw 缓存），失败回退 raw
+const String _kGateway = 'https://ai-gateway.1829487897.workers.dev';
+const String _kUpdateManifest = "$_kGateway/update/latest.json";
+const String _kUpdateManifestFallback =
     "https://raw.githubusercontent.com/Smalluniverseheng/OmniHub-Update/main/latest.json";
 
 Future<AppUpdateInfo?> fetchUpdateInfo() async {
-  final res = await AppDio().get(_kUpdateManifest);
-  if (res.statusCode != 200) return null;
-  dynamic data = res.data;
+  dynamic data;
+  for (final url in [_kUpdateManifest, _kUpdateManifestFallback]) {
+    try {
+      final res = await AppDio().get(url);
+      if (res.statusCode != 200) continue;
+      data = res.data;
+      break;
+    } catch (_) {
+      continue;
+    }
+  }
+  if (data == null) return null;
   if (data is String) {
     try {
       data = jsonDecode(data);
@@ -188,14 +200,16 @@ void _showUpdateDialog(AppUpdateInfo info) {
 
 /// 后台下载 APK，完成后提示安装
 Future<void> downloadAndInstallUpdate(AppUpdateInfo info) async {
-  // 按设备 ABI 选择安装包
+  // 按设备 ABI 选择安装包；优先 Cloudflare Worker 加速通道
   var url = info.apks['universal'] ?? '';
+  String abi = '';
   try {
     const channel = MethodChannel('omnihub/update');
     final abis = await channel.invokeMethod<List<dynamic>>('getAbis');
-    for (final abi in const ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
-      if ((abis?.contains(abi) ?? false) && info.apks[abi] != null) {
-        url = info.apks[abi]!;
+    for (final a in const ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
+      if ((abis?.contains(a) ?? false) && info.apks[a] != null) {
+        url = info.apks[a]!;
+        abi = a;
         break;
       }
     }
@@ -204,6 +218,11 @@ Future<void> downloadAndInstallUpdate(AppUpdateInfo info) async {
     launchUrlString(info.releasePage);
     return;
   }
+  // Worker 加速地址（GitHub 直连慢/失败的设备走这里），失败时回退原始链接
+  final urls = <String>[
+    if (abi.isNotEmpty) '$_kGateway/update/apk/$abi',
+    url,
+  ];
 
   final dir = await getTemporaryDirectory();
   final path = '${dir.path}/OmniHub-${info.version}.apk';
@@ -252,14 +271,30 @@ Future<void> downloadAndInstallUpdate(AppUpdateInfo info) async {
   ).then((_) => dialogOpen = false);
 
   try {
-    await dio_pkg.Dio().download(
-      url,
-      path,
-      cancelToken: cancelToken,
-      onReceiveProgress: (r, t) {
-        if (t > 0) progress.value = r / t;
-      },
-    );
+    var downloaded = false;
+    Object? lastError;
+    for (final u in urls) {
+      try {
+        await dio_pkg.Dio().download(
+          u,
+          path,
+          cancelToken: cancelToken,
+          onReceiveProgress: (r, t) {
+            if (t > 0) progress.value = r / t;
+          },
+        );
+        downloaded = true;
+        break;
+      } catch (e) {
+        if (e is dio_pkg.DioException &&
+            e.type == dio_pkg.DioExceptionType.cancel) {
+          rethrow; // 用户主动取消，不再尝试其他通道
+        }
+        lastError = e;
+        progress.value = 0;
+      }
+    }
+    if (!downloaded) throw lastError ?? Exception('下载失败');
     progress.value = 1;
     if (dialogOpen && App.rootContext.mounted) {
       Navigator.of(App.rootContext, rootNavigator: true).pop();
