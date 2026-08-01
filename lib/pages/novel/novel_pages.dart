@@ -15,7 +15,6 @@ import 'package:venera/omnihub/novel/book_source.dart';
 import 'package:venera/omnihub/novel/legado_engine.dart';
 import 'package:venera/omnihub/novel/local_import.dart';
 import 'package:venera/omnihub/novel/source_detect.dart';
-import 'package:venera/omnihub/novel/tauri_engine.dart';
 import 'package:venera/omnihub/video/tvbox.dart';
 import 'package:venera/pages/video/video_pages.dart';
 import 'package:venera/omnihub/stats/reading_stats.dart';
