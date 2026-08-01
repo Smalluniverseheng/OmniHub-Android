@@ -445,10 +445,7 @@ extension _AiHomeUi on AiHomePageState {
                       onLongPressStart: (_) => _startVoice(),
                       onLongPressMoveUpdate: (d) {
                         // 上滑超过 100px 进入取消区域
-                        final cancel = d.offsetFromOrigin.dy < -100;
-                        if (cancel != _voiceCancel) {
-                          setState(() => _voiceCancel = cancel);
-                        }
+                        _setVoiceCancel(d.offsetFromOrigin.dy < -100);
                       },
                       onLongPressEnd: (_) =>
                           _stopVoice(cancel: _voiceCancel),

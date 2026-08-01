@@ -562,6 +562,11 @@ class AiHomePageState extends State<AiChatListPage>
   /// 是否处于上滑取消区域
   bool _voiceCancel = false;
 
+  /// 上滑取消区域状态切换（extension 内不可直接 setState）
+  void _setVoiceCancel(bool v) {
+    if (v != _voiceCancel) setState(() => _voiceCancel = v);
+  }
+
   Future<void> _startVoice() async {
     if (!_speechReady) {
       _speechReady = await _speech.initialize();
