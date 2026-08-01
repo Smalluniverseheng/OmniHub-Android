@@ -26,7 +26,7 @@ jobs:
 
       - name: Ensure signing keystore (仓库已固定测试签名，缺失才生成)
         run: |
-          if [ ! -f android/key.properties ]; then
+          if [ ! -f android/app/omnihub-release.jks ]; then
             keytool -genkeypair -v \
               -keystore android/app/omnihub-release.jks \
               -alias omnihub -keyalg RSA -keysize 2048 -validity 10000 \

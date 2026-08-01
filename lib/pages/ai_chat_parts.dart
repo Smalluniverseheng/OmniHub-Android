@@ -201,7 +201,7 @@ extension _AiHomeUi on AiHomePageState {
                               onPressed: () async {
                                 await _rotateImage(path);
                                 setDlg(() {});
-                                setState(() {});
+                                refresh();
                               },
                             ),
                           IconButton(
@@ -210,10 +210,9 @@ extension _AiHomeUi on AiHomePageState {
                                 color: Colors.white),
                             onPressed: () {
                               Navigator.of(ctx).pop();
-                              setState(() {
-                                m.attachments.removeWhere(
-                                    (a) => a['path'] == path);
-                              });
+                              m.attachments.removeWhere(
+                                  (a) => a['path'] == path);
+                              refresh();
                               if (_conv != null) {
                                 AiStore.instance.updateConversation(_conv!);
                               }
@@ -441,7 +440,8 @@ extension _AiHomeUi on AiHomePageState {
                 child: GestureDetector(
                   onTap: () {
                     final path = a['path'];
-                    setState(() => _pendingAttachments.removeAt(i));
+                    _pendingAttachments.removeAt(i);
+                    refresh();
                     if (path != null) {
                       try {
                         File(path).deleteSync();
@@ -501,7 +501,7 @@ extension _AiHomeUi on AiHomePageState {
                   _input.text = _input.text + content;
                   _input.selection = TextSelection.collapsed(
                       offset: _input.text.length);
-                  setState(() {});
+                  refresh();
                 }
               }),
               _plusItem(ctx, Icons.travel_explore_outlined, '联网搜索', () {
@@ -568,7 +568,7 @@ extension _AiHomeUi on AiHomePageState {
               onPressed: () {
                 appdata.settings['aiWebSearch'] = mode;
                 appdata.saveData();
-                setState(() {});
+                refresh();
                 Navigator.pop(ctx);
                 context.showMessage(
                     message: mode == 'auto' ? '联网搜索已开启' : '联网搜索已关闭');
@@ -636,7 +636,7 @@ extension _AiModelPicker on AiHomePageState {
               _conv!.model = modelId;
               store.updateConversation(_conv!);
             }
-            setState(() {});
+            refresh();
             Navigator.pop(ctx);
           },
         ),

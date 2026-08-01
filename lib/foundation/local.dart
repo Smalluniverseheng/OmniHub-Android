@@ -501,10 +501,35 @@ class LocalManager with ChangeNotifier {
 
   void completeTask(DownloadTask task) {
     add(task.toLocalComic());
+    _autoAddToShelf(task);
     downloadingTasks.remove(task);
     notifyListeners();
     saveCurrentDownloadingTasks();
     downloadingTasks.firstOrNull?.resume();
+  }
+
+  /// 下载完成的漫画默认加入书架（本地收藏「已下载」文件夹）
+  void _autoAddToShelf(DownloadTask task) {
+    try {
+      const folder = '已下载';
+      final fav = LocalFavoritesManager();
+      if (!fav.existsFolder(folder)) {
+        fav.createFolder(folder);
+      }
+      var cover = task.cover ?? '';
+      if (cover.startsWith('file://')) cover = cover.substring(7);
+      fav.addComic(
+        folder,
+        FavoriteItem(
+          id: task.id,
+          name: task.title,
+          coverPath: cover,
+          author: '',
+          type: task.comicType,
+          tags: const [],
+        ),
+      );
+    } catch (_) {}
   }
 
   void removeTask(DownloadTask task) {

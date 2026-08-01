@@ -108,6 +108,11 @@ class AiHomePageState extends State<AiChatListPage>
     if (mounted) setState(() {});
   }
 
+  /// 供 part 扩展方法安全触发重建（setState 为 protected）
+  void refresh() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _initSpeech() async {
     try {
       _speechReady = await _speech.initialize();
